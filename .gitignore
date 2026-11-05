@@ -1,5 +1,12 @@
 .env
 node_modules/
-wallpaper_state.json
-mod_estoque_state.json
-tickets_notificados.json
+## Arquivos legados: estado migrado para /data
+/wallpaper_state.json
+/mod_estoque_state.json
+/tickets_notificados.json
+/anuncios_fivem.json
+/data/*.json
+/data/*.tmp
+/data/transcripts/
+bot-runtime.log
+bot-runtime-error.log

@@ -3,23 +3,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { client } from '../client.js';
+import { PATHS, GUILD_ID } from '../config/constants.js';
+import { getSaudacaoDinamica } from '../services/greetings.js';
 import {
-    PATHS, GUILD_ID, CANAL_COMPRAS_ONLINE_STATUS, CANAL_PARCERIA_PUBLICA,
-    CANAL_AVISOS_VENDAS_PUBLICA, CANAL_SUGESTAO_ID, CANAL_ANUNCIO_FIVE_M_ID,
-    CANAL_NOVIDADES_CARGOS_ID, CANAL_INFO_PRECISION_ID, CANAL_WALLPAPERS_ID,
-    CANAL_POST_CTZ, CANAL_POST_BOOSTERS
-} from '../config/constants.js';
-import {
-    carregarEstadoWallpaper, salvarEstadoWallpaper, carregarEstadoMods,
-    salvarEstadoMods, getSaudacaoDinamica
-} from '../services/state.js';
+    getStockState, getWallpaperState, saveStockState, saveWallpaperState
+} from '../repositories/stateRepository.js';
+import { getSettings } from '../repositories/settingsRepository.js';
+import { readJsonData, writeJsonData } from '../data/jsonStore.js';
 
 const __dirname = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const ultimasMensagensLoop = new Map();
+const LOOP_MESSAGES_FILE = 'automation-message-ids.json';
+const ultimasMensagensLoop = new Map(Object.entries(readJsonData(LOOP_MESSAGES_FILE, {})));
 const ultimoAvisoAssetAusente = new Map();
 
 export async function removerAnuncioParceriaAntigo() {
-    const canal = await client.channels.fetch(CANAL_PARCERIA_PUBLICA).catch(() => null);
+    const canal = await client.channels.fetch(getSettings().channels.partnerships).catch(() => null);
     if (!canal?.isTextBased()) return;
     const mensagens = await canal.messages.fetch({ limit: 50 }).catch(error => {
         console.warn('[parceria] Não foi possível localizar o anúncio antigo:', error);
@@ -52,6 +50,7 @@ export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveL
     try {
         const atualizada = mensagem ? await mensagem.edit(payload) : await canal.send(payload);
         ultimasMensagensLoop.set(chaveLoop, atualizada.id);
+        writeJsonData(LOOP_MESSAGES_FILE, Object.fromEntries(ultimasMensagensLoop));
     } catch (error) {
         console.error(`[avisos] Falha ao publicar no canal ${canalId}:`, error);
     }
@@ -59,17 +58,19 @@ export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveL
 
 export function gerarPayloadsLoop() {
     const saudacao = getSaudacaoDinamica();
+    const allowedMentions = getSettings().everyoneMentions ? { parse: ['everyone'] } : { parse: [] };
     return {
-        payloadComprasOnline: { content: `${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n• **PRODUTO 1:** https://discord.com/channels/${GUILD_ID}/1552131842960916521\n• **PRODUTO 2:** https://discord.com/channels/${GUILD_ID}/1552131921801256961\n• **PRODUTO 3:** https://discord.com/channels/${GUILD_ID}/1552727902930346167\n\n@everyone` },
-        payloadVendasSuporte: { content: `${saudacao}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone` },
-        payloadSugestao: { content: `${saudacao}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone` },
-        payloadAnuncioFiveM: { content: `# 🚨 ENTRE AGORA NO DISCORD DA COMMUNITY FOR FIVEM!\n\nConvite: https://discord.gg/PX5YFryEPA\n\n@everyone` },
-        payloadNovidadesCargos: { content: `# ✨ NOVIDADES NA COMMUNITY FOR FIVEM! ✨\nAtualizamos nossos cargos e vantagens!\n\n@everyone` },
-        payloadInfoPrecision: { content: `${saudacao}\n\n⚡ **BOT ONLINE • INFORMAÇÕES SOBRE O PRECISIONFIX**\n\nO bot está online.\n\n🔹 **Faça sua verificação:**\nhttps://discord.com/channels/${GUILD_ID}/1547204424244658216\n\n🚀 **Adquira o PrecisionFix:**\nhttps://discord.com/channels/${GUILD_ID}/1552131842960916521\n\n> ⚠️ O acesso do PrecisionFix dura **5 dias**.\n\n@everyone` }
+        payloadComprasOnline: { content: `${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n• **PRODUTO 1:** https://discord.com/channels/${GUILD_ID}/1552131842960916521\n• **PRODUTO 2:** https://discord.com/channels/${GUILD_ID}/1552131921801256961\n• **PRODUTO 3:** https://discord.com/channels/${GUILD_ID}/1552727902930346167\n\n@everyone`, allowedMentions },
+        payloadVendasSuporte: { content: `${saudacao}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone`, allowedMentions },
+        payloadSugestao: { content: `${saudacao}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone`, allowedMentions },
+        payloadNovidadesCargos: { content: `# ✨ NOVIDADES NA COMMUNITY FOR FIVEM! ✨\nAtualizamos nossos cargos e vantagens!\n\n@everyone`, allowedMentions },
+        payloadInfoPrecision: { content: `${saudacao}\n\n⚡ **BOT ONLINE • INFORMAÇÕES SOBRE O PRECISIONFIX**\n\nO bot está online.\n\n🔹 **Faça sua verificação:**\nhttps://discord.com/channels/${GUILD_ID}/1547204424244658216\n\n🚀 **Adquira o PrecisionFix:**\nhttps://discord.com/channels/${GUILD_ID}/1552131842960916521\n\n> ⚠️ O acesso do PrecisionFix dura **5 dias**.\n\n@everyone`, allowedMentions }
     };
 }
 
 export async function dispararAvisosLoopHorario() {
+    const settings = getSettings();
+    if (!settings.automations.announcements) return;
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
         console.error(`[avisos] Bot não está no servidor configurado (${GUILD_ID}).`);
@@ -77,20 +78,21 @@ export async function dispararAvisosLoopHorario() {
     }
     const payloads = gerarPayloadsLoop();
     const mensagens = [
-        [CANAL_COMPRAS_ONLINE_STATUS, payloads.payloadComprasOnline],
-        [CANAL_AVISOS_VENDAS_PUBLICA, payloads.payloadVendasSuporte],
-        [CANAL_SUGESTAO_ID, payloads.payloadSugestao],
-        [CANAL_ANUNCIO_FIVE_M_ID, payloads.payloadAnuncioFiveM],
-        [CANAL_NOVIDADES_CARGOS_ID, payloads.payloadNovidadesCargos],
-        [CANAL_INFO_PRECISION_ID, payloads.payloadInfoPrecision]
+        [settings.channels.purchaseStatus, payloads.payloadComprasOnline],
+        [settings.channels.supportNotices, payloads.payloadVendasSuporte],
+        [settings.channels.suggestions, payloads.payloadSugestao],
+        [settings.channels.roleNews, payloads.payloadNovidadesCargos],
+        [settings.channels.precisionInfo, payloads.payloadInfoPrecision]
     ];
     await Promise.all(mensagens.map(([id, payload]) => enviarOuSubstituirMensagem(guild, id, payload, id)));
 }
 
 export async function dispararWallpaperDiario() {
+    const settings = getSettings();
+    if (!settings.automations.wallpapers) return;
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) return console.error('[wallpapers] Bot não está no servidor configurado.');
-    const estado = carregarEstadoWallpaper();
+    const estado = getWallpaperState();
     const diaAtual = estado.diaAtual;
     const arquivoPath = path.join(__dirname, 'Wallpapers', `${diaAtual}.png`);
     if (!fs.existsSync(arquivoPath)) {
@@ -98,12 +100,12 @@ export async function dispararWallpaperDiario() {
         return;
     }
 
-    const canal = await guild.channels.fetch(CANAL_WALLPAPERS_ID).catch(() => null);
-    if (!canal?.isTextBased()) return console.error(`[wallpapers] Canal ${CANAL_WALLPAPERS_ID} não encontrado.`);
+    const canal = await guild.channels.fetch(settings.channels.wallpapers).catch(() => null);
+    if (!canal?.isTextBased()) return console.error(`[wallpapers] Canal ${settings.channels.wallpapers} não encontrado.`);
     try {
         const attachment = new AttachmentBuilder(arquivoPath, { name: `wallpaper-dia-${diaAtual}.png` });
         await canal.send({ content: `🖼️ **Wallpaper do Dia • Dia ${diaAtual}/105**`, files: [attachment] });
-        salvarEstadoWallpaper({ diaAtual: diaAtual >= 105 ? 1 : diaAtual + 1 });
+        saveWallpaperState({ diaAtual: diaAtual >= 105 ? 1 : diaAtual + 1 });
     } catch (error) {
         console.error('[wallpapers] Falha ao enviar o wallpaper:', error);
     }
@@ -111,7 +113,10 @@ export async function dispararWallpaperDiario() {
 
 export async function processarEnvioArmazemCincoHoras(guild, nomeArmazem, pastaArmazem, canalDestinoId, estadoKey, forcarEnvio = false) {
     try {
-        const estadoMods = carregarEstadoMods();
+        const settings = getSettings();
+        if (!settings.automations.stock) return;
+        canalDestinoId = settings.channels[estadoKey === 'ctz' ? 'stockCtz' : 'stockBoosters'];
+        const estadoMods = getStockState();
         const armazemEstado = estadoMods[estadoKey];
         const agoraMs = Date.now();
         const cincoHorasMs = 5 * 60 * 60 * 1000;
@@ -139,38 +144,57 @@ export async function processarEnvioArmazemCincoHoras(guild, nomeArmazem, pastaA
             const primeiraMensagem = inicio === 0;
             await canal.send({
                 content: primeiraMensagem ? `📦 **[${titulo}] • Item #${item}**\n\n@everyone` : undefined,
+                allowedMentions: settings.everyoneMentions ? { parse: ['everyone'] } : { parse: [] },
                 files: anexos.slice(inicio, inicio + 10)
             });
         }
         armazemEstado.indexAtual += 1;
         armazemEstado.ultimoTimestampEnvio = agoraMs;
-        salvarEstadoMods(estadoMods);
+        saveStockState(estadoMods);
     } catch (error) {
         console.error(`[armazém:${nomeArmazem}] Falha ao enviar item:`, error);
     }
 }
 
 export async function dispararTodosArmazensCincoHoras(forcarEnvio = false) {
+    if (!getSettings().automations.stock) return;
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) return console.error('[armazéns] Bot não está no servidor configurado.');
-    await processarEnvioArmazemCincoHoras(guild, 'ctz', PATHS.ctz, CANAL_POST_CTZ, 'ctz', forcarEnvio);
-    await processarEnvioArmazemCincoHoras(guild, 'boosters', PATHS.boosters, CANAL_POST_BOOSTERS, 'boosters', forcarEnvio);
+    await processarEnvioArmazemCincoHoras(guild, 'ctz', PATHS.ctz, null, 'ctz', forcarEnvio);
+    await processarEnvioArmazemCincoHoras(guild, 'boosters', PATHS.boosters, null, 'boosters', forcarEnvio);
 }
 
 export function iniciarAgendadorRelogio() {
+    let ultimoAvisoAgendado = '';
+    let ultimoWallpaper = '';
+    let ultimaVerificacaoEstoque = '';
     setInterval(() => {
-        const agora = new Date();
-        const hora = agora.getHours();
-        const minuto = agora.getMinutes();
-        const segundo = agora.getSeconds();
-        if (segundo === 0 && minuto === 0 && [5, 12, 18].includes(hora)) void dispararAvisosLoopHorario();
-        if (segundo === 5 && hora === 12 && minuto === 0) void dispararWallpaperDiario();
-        if (segundo === 10) void dispararTodosArmazensCincoHoras(false);
-    }, 1000);
+        const settings = getSettings();
+        const partes = new Intl.DateTimeFormat('en-US', {
+            timeZone: settings.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+        }).formatToParts(new Date()).reduce((resultado, parte) => ({ ...resultado, [parte.type]: parte.value }), {});
+        const hora = Number(partes.hour);
+        const minuto = Number(partes.minute);
+        const dataHora = `${partes.year}-${partes.month}-${partes.day}T${partes.hour}:${partes.minute}`;
+        if (dataHora !== ultimoAvisoAgendado && minuto === 0 && settings.automations.announcements && settings.announcementHours.includes(hora)) {
+            ultimoAvisoAgendado = dataHora;
+            void dispararAvisosLoopHorario();
+        }
+        if (dataHora !== ultimoWallpaper && minuto === 0 && hora === 12 && settings.automations.wallpapers) {
+            ultimoWallpaper = dataHora;
+            void dispararWallpaperDiario();
+        }
+        const stockKey = `${partes.year}-${partes.month}-${partes.day}T${partes.hour}:${String(Math.floor(minuto / 5) * 5).padStart(2, '0')}`;
+        if (settings.automations.stock && minuto % 5 === 0 && stockKey !== ultimaVerificacaoEstoque) {
+            ultimaVerificacaoEstoque = stockKey;
+            void dispararTodosArmazensCincoHoras(false);
+        }
+    }, 15 * 1000);
 }
 
 export async function verificarEnviosPendentesAoLigar() {
-    const estado = carregarEstadoMods();
+    const estado = getStockState();
     const limite = 5 * 60 * 60 * 1000;
     const agora = Date.now();
     const ctzPendente = estado.ctz.ultimoTimestampEnvio === 0 || agora - estado.ctz.ultimoTimestampEnvio >= limite;

@@ -1,31 +1,25 @@
 ﻿import {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType,
-    EmbedBuilder, MessageFlags, ModalBuilder, PermissionsBitField,
-    TextInputBuilder, TextInputStyle
+    EmbedBuilder, MessageFlags, PermissionsBitField
 } from 'discord.js';
 import { client } from '../client.js';
-import {
-    CARGO_VERIFICADO_ID, CATEGORIA_SUPORTE_ID, CARGO_STAFF_SUPORTE_ID,
-    CANAL_PARCERIA_PUBLICA, MEU_ID_USUARIO
-} from '../config/constants.js';
-import { getSaudacaoDinamica } from '../services/state.js';
+import { CARGO_VERIFICADO_ID, CARGO_STAFF_SUPORTE_ID } from '../config/constants.js';
+import { getSaudacaoDinamica } from '../services/greetings.js';
+import { getSettings } from '../repositories/settingsRepository.js';
+import { logAction } from '../services/audit.js';
+import { rememberRemoteTranscript, saveTicketTranscript } from '../services/transcripts.js';
+import { tratarInteracaoAdministracao } from '../features/administration.js';
+import { tratarInteracaoParcerias } from '../features/partnerships.js';
+import { tratarInteracaoAnunciosFiveM } from '../features/fivemAnnouncements.js';
+
+const ticketsEmCriacao = new Set();
 
 client.on('interactionCreate', async interaction => {
     try {
+        if (await tratarInteracaoAnunciosFiveM(interaction)) return;
+        if (await tratarInteracaoAdministracao(interaction)) return;
+        if (await tratarInteracaoParcerias(interaction)) return;
         if (interaction.isChatInputCommand()) {
-            if (interaction.commandName === 'cadastrar-parceria') {
-                const ehDono = interaction.user.id === MEU_ID_USUARIO || interaction.user.id === interaction.guild?.ownerId;
-                if (!ehDono) return interaction.reply({ content: 'Apenas os donos do servidor podem cadastrar parcerias.', flags: MessageFlags.Ephemeral });
-                const modal = new ModalBuilder()
-                    .setCustomId('cadastro_parceria_modal')
-                    .setTitle('Cadastrar nova parceria')
-                    .addComponents(
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('nome').setLabel('Nome da parceria').setStyle(TextInputStyle.Short).setMaxLength(80).setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('link').setLabel('Link do parceiro').setStyle(TextInputStyle.Short).setMaxLength(500).setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('descricao').setLabel('Descrição').setStyle(TextInputStyle.Paragraph).setMaxLength(800).setRequired(true))
-                    );
-                return interaction.showModal(modal);
-            }
             if (interaction.commandName === 'ajuda') {
                 return interaction.reply({
                     flags: MessageFlags.Ephemeral,
@@ -34,8 +28,16 @@ client.on('interactionCreate', async interaction => {
                         '`/ajuda` — mostra esta lista.',
                         '`/ping` — mostra a latência do bot.',
                         '`/teste` — verifica se o bot está respondendo.',
+                        '`/vendas` — mostra os produtos disponíveis para compra.',
+                        '`/comprar` — abre o canal do produto que você quer comprar.',
+                        '`/parcerias` — gerencia parcerias (somente donos).',
+                        '`/cadastrar-parceria` — abre o cadastro rápido de parceria (somente donos).',
+                        '`/anuncios-fivem` — administra anúncios (somente donos).',
+                        '`/configurar` — configura canais e automações (somente donos).',
+                        '`/status` e `/logs` — estado do bot e registro administrativo.',
+                        '`/backup` — baixa uma cópia dos dados administrativos (somente donos).',
                         '',
-                        'Os painéis do servidor também oferecem verificação e tickets.'
+                        'Os painéis do servidor também oferecem verificação e abertura de tickets.'
                     ].join('\n')
                 });
             }
@@ -79,31 +81,6 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ flags: MessageFlags.Ephemeral, content: 'Comando não reconhecido.' });
         }
 
-        if (interaction.isModalSubmit() && interaction.customId === 'cadastro_parceria_modal') {
-            const ehDono = interaction.user.id === MEU_ID_USUARIO || interaction.user.id === interaction.guild?.ownerId;
-            if (!ehDono) return interaction.reply({ content: 'Apenas os donos do servidor podem cadastrar parcerias.', flags: MessageFlags.Ephemeral });
-            const nome = interaction.fields.getTextInputValue('nome').trim();
-            const link = interaction.fields.getTextInputValue('link').trim();
-            const descricao = interaction.fields.getTextInputValue('descricao').trim();
-            let url;
-            try {
-                url = new URL(link);
-                if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Protocolo inválido');
-            } catch {
-                return interaction.reply({ content: 'Informe um link válido começando com http:// ou https://.', flags: MessageFlags.Ephemeral });
-            }
-            const canal = await interaction.guild.channels.fetch(CANAL_PARCERIA_PUBLICA).catch(() => null);
-            if (!canal?.isTextBased()) return interaction.reply({ content: 'O canal de divulgação de parcerias não foi encontrado. Confira o ID configurado.', flags: MessageFlags.Ephemeral });
-            const embed = new EmbedBuilder()
-                .setColor(0x5865F2)
-                .setTitle(`🤝 ${nome}`)
-                .setDescription(descricao)
-                .addFields({ name: 'Acesse', value: `[Abrir link da parceria](${url.href})` })
-                .setTimestamp();
-            await canal.send({ embeds: [embed], allowedMentions: { parse: [] } });
-            return interaction.reply({ content: `✅ Parceria **${nome}** cadastrada em ${canal}.`, flags: MessageFlags.Ephemeral });
-        }
-
         if (!interaction.isButton()) return;
 
         if (interaction.customId === 'botao_verificar') {
@@ -121,12 +98,20 @@ client.on('interactionCreate', async interaction => {
         if (interaction.customId === 'abrir_ticket') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             const guild = interaction.guild;
+            if (ticketsEmCriacao.has(interaction.user.id)) return interaction.editReply({ content: 'Seu atendimento está sendo aberto. Aguarde um instante.' });
+            ticketsEmCriacao.add(interaction.user.id);
+            try {
+            await guild.channels.fetch();
+            const supportCategoryId = getSettings().channels.supportCategory;
+            const duplicateTicket = guild.channels.cache.find(channel => channel.parentId === supportCategoryId && channel.type === ChannelType.GuildText && channel.topic === `ticket-owner:${interaction.user.id}`);
+            if (duplicateTicket) return interaction.editReply({ content: `Você já tem um atendimento aberto: ${duplicateTicket}` });
             const cleanUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || interaction.user.id;
             const tipo = 'ticket';
             const channel = await guild.channels.create({
                 name: `${tipo}-${cleanUser}`.slice(0, 100),
                 type: ChannelType.GuildText,
-                parent: CATEGORIA_SUPORTE_ID,
+                parent: supportCategoryId,
+                topic: `ticket-owner:${interaction.user.id}`,
                 permissionOverwrites: [
                     { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
                     { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
@@ -137,14 +122,18 @@ client.on('interactionCreate', async interaction => {
             const embed = new EmbedBuilder()
                 .setColor(0x00FFCC)
                 .setTitle('🎫 • ATENDIMENTO')
-                .setDescription(`Olá <@${interaction.user.id}>, envie sua solicitação aqui.`)
+                .setDescription(`Olá <@${interaction.user.id}>, envie sua solicitação aqui.\n\nEste atendimento pode usar IA para ajudar com respostas. Evite enviar senhas, tokens ou outros dados sensíveis.`)
                 .setTimestamp();
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('fechar_ticket').setLabel('🔒 Fechar').setStyle(ButtonStyle.Danger)
             );
             await channel.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
             await channel.send(`${getSaudacaoDinamica()} Tudo bem? No que posso ajudar?`);
+            await logAction(guild, interaction.user.id, 'Ticket aberto', `Canal ${channel.name}`);
             return interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
+            } finally {
+                ticketsEmCriacao.delete(interaction.user.id);
+            }
         }
 
         if (interaction.customId === 'fechar_ticket') {
@@ -154,10 +143,25 @@ client.on('interactionCreate', async interaction => {
             }
             await interaction.reply({ content: '🔒 Fechando canal em 5 segundos...' });
             setTimeout(async () => {
+                const ticket = interaction.channel;
                 try {
-                    await interaction.channel?.delete('Ticket fechado pela equipe de suporte');
+                    const transcriptPath = await saveTicketTranscript(ticket);
+                    await logAction(interaction.guild, interaction.user.id, 'Ticket fechado', `Canal ${ticket.name}; transcrição ${ticket.id}.txt`);
+                    const logChannelId = getSettings().channels.audit;
+                    if (logChannelId) {
+                        const logChannel = await interaction.guild.channels.fetch(logChannelId).catch(() => null);
+                        if (logChannel?.isTextBased()) {
+                            const transcriptMessage = await logChannel.send({ content: `📄 Transcrição do ticket **${ticket.name}**.`, files: [transcriptPath] }).catch(error => {
+                                console.error('[tickets] Não foi possível enviar a transcrição ao canal de logs:', error);
+                                return null;
+                            });
+                            if (transcriptMessage) rememberRemoteTranscript({ guildId: interaction.guild.id, channelId: logChannel.id, messageId: transcriptMessage.id });
+                        }
+                    }
                 } catch (error) {
-                    console.error('[tickets] Não foi possível fechar o canal:', error);
+                    console.error('[tickets] Falha ao guardar a transcrição do ticket:', error);
+                } finally {
+                    await ticket.delete('Ticket fechado pela equipe de suporte').catch(error => console.error('[tickets] Não foi possível fechar o canal:', error));
                 }
             }, 5000);
         }

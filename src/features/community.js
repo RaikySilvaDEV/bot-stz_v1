@@ -1,10 +1,11 @@
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { client } from '../client.js';
-import { CANAL_BOAS_VINDAS_ID, CANAL_VERIFICACAO_ID, CANAL_PAINEL_PARCERIA_ANTIGO_ID } from '../config/constants.js';
-import { getSaudacaoDinamica } from '../services/state.js';
+import { CANAL_PAINEL_PARCERIA_ANTIGO_ID } from '../config/constants.js';
+import { getSaudacaoDinamica } from '../services/greetings.js';
+import { getSettings } from '../repositories/settingsRepository.js';
 client.on('guildMemberAdd', async (member) => {
     try {
-        const canalBoasVindas = await member.guild.channels.fetch(CANAL_BOAS_VINDAS_ID).catch(() => null);
+        const canalBoasVindas = await member.guild.channels.fetch(getSettings().channels.welcome).catch(() => null);
         if (!canalBoasVindas || !canalBoasVindas.isTextBased()) return;
 
         const saudacao = getSaudacaoDinamica();
@@ -27,7 +28,7 @@ client.on('guildMemberAdd', async (member) => {
 
 export async function configurarCanalVerificacao() {
     try {
-        const channel = await client.channels.fetch(CANAL_VERIFICACAO_ID).catch(() => null);
+        const channel = await client.channels.fetch(getSettings().channels.verification).catch(() => null);
         if (!channel) return;
         const messages = await channel.messages.fetch({ limit: 10 });
         const existingMessage = messages.find(m => m.author.id === client.user.id && m.components.length > 0 && m.components[0].components.some(c => c.customId === 'botao_verificar'));

@@ -30,8 +30,8 @@ export const PASTA_CTZ = path.join(__dirname, 'ModArmazem', 'ctz');
 export const CANAL_POST_BOOSTERS = "1547319800529682483";
 export const PASTA_BOOSTERS = path.join(__dirname, 'ModArmazem', 'ctz boosters');
 
-export const ARQUIVO_ESTADO_WALLPAPER = path.join(__dirname, 'wallpaper_state.json');
-export const ARQUIVO_ESTADO_MODS = path.join(__dirname, 'mod_estoque_state.json');
-export const ARQUIVO_TICKETS_NOTIFICADOS = path.join(__dirname, 'tickets_notificados.json');
-
-export const PATHS = { wallpaperState: path.join(__dirname, 'wallpaper_state.json'), modsState: path.join(__dirname, 'mod_estoque_state.json'), ticketsNotificados: path.join(__dirname, 'tickets_notificados.json'), ctz: path.join(__dirname, 'ModArmazem', 'ctz'), boosters: path.join(__dirname, 'ModArmazem', 'ctz boosters') };
+export const PATHS = {
+    ctz: path.join(__dirname, 'ModArmazem', 'ctz'),
+    boosters: path.join(__dirname, 'ModArmazem', 'ctz boosters'),
+    wallpapers: path.join(__dirname, 'Wallpapers')
+};
