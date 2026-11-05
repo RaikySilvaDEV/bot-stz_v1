@@ -1,11 +1,11 @@
 import { ChannelType } from 'discord.js';
 import { ai, client } from '../client.js';
-import { CATEGORIA_SUPORTE_ID, CANAIS_IGNORADOS_SUPORTE, MEU_ID_USUARIO } from '../config/constants.js';
+import { GUILD_ID, CATEGORIA_SUPORTE_ID, CANAIS_IGNORADOS_SUPORTE, MEU_ID_USUARIO } from '../config/constants.js';
 import { carregarTicketsNotificados, salvarTicketNotificado, getSaudacaoDinamica } from '../services/state.js';
 export function iniciarVarreduraTicketsOrfaos() {
     setInterval(async () => {
         try {
-            const guild = client.guilds.cache.first();
+            const guild = client.guilds.cache.get(GUILD_ID);
             if (!guild) return;
             await guild.channels.fetch();
 
@@ -44,11 +44,19 @@ Interprete gírias e abreviações informais do usuário (como 'q', 'oq', 'n', '
 Assuntos principais: PrecisionFix (otimização FiveM, key de 5 dias, ativação) e dúvidas de compra/suporte.
 Responda com todas as informações necessárias. Se a dúvida ultrapassar o seu atendimento automático ou o cliente insistir, inclua obrigatoriamente a palavra CHAVE_HUMANO na resposta.`;
 
-                            const response = await ai.models.generateContent({
-                                model: 'gemini-1.5-flash',
-                                contents: `Mensagem do cliente: "${ultimaMsg.content}"`,
-                                config: { systemInstruction: promptSistema }
-                            });
+                            let response;
+                            try {
+                                response = await ai.models.generateContent({
+                                    model: 'gemini-3.8-flash',
+                                    contents: `Mensagem do cliente: "${ultimaMsg.content}"`,
+                                    config: { systemInstruction: promptSistema }
+                                });
+                            } catch (error) {
+                                console.error(`[tickets:${canalTicket.id}] Gemini indisponível:`, error);
+                                salvarTicketNotificado(canalTicket.id);
+                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: não consegui consultar a IA neste atendimento. A equipe precisa responder manualmente.`);
+                                continue;
+                            }
 
                             let respostaIA = (response.text || "").trim();
 
@@ -62,10 +70,11 @@ Responda com todas as informações necessárias. Se a dúvida ultrapassar o seu
                             await ultimaMsg.reply(respostaIA);
                         }
                     }
-                } catch (errCanal) {}
+                } catch (errCanal) { console.error(`[tickets:${canalTicket.id}] Falha ao processar ticket:`, errCanal); }
             }
-        } catch (errGlobal) {}
+        } catch (errGlobal) { console.error('[tickets] Falha na varredura:', errGlobal); }
     }, 25 * 1000);
 }
 
 // 👋 Boas-vindas Personalizadas
+

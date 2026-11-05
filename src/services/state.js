@@ -5,7 +5,7 @@ export function carregarTicketsNotificados() {
         if (fs.existsSync(PATHS.ticketsNotificados)) {
             return JSON.parse(fs.readFileSync(PATHS.ticketsNotificados, 'utf8'));
         }
-    } catch (e) {}
+    } catch (error) { console.error('[estado] Falha ao ler ou gravar estado:', error); }
     return [];
 }
 
@@ -16,7 +16,7 @@ export function salvarTicketNotificado(canalId) {
             lista.push(canalId);
             fs.writeFileSync(PATHS.ticketsNotificados, JSON.stringify(lista, null, 2), 'utf8');
         }
-    } catch (e) {}
+    } catch (error) { console.error('[estado] Falha ao ler ou gravar estado:', error); }
 }
 
 export function getSaudacaoDinamica() {
@@ -32,14 +32,14 @@ export function carregarEstadoWallpaper() {
             const data = JSON.parse(fs.readFileSync(PATHS.wallpaperState, 'utf8'));
             return { diaAtual: data.diaAtual || 1 };
         }
-    } catch (e) {}
+    } catch (error) { console.error('[estado] Falha ao ler ou gravar estado:', error); }
     return { diaAtual: 1 };
 }
 
 export function salvarEstadoWallpaper(estado) {
     try {
         fs.writeFileSync(PATHS.wallpaperState, JSON.stringify(estado, null, 2), 'utf8');
-    } catch (e) {}
+    } catch (error) { console.error('[estado] Falha ao ler ou gravar estado:', error); }
 }
 
 export function carregarEstadoMods() {
@@ -51,14 +51,14 @@ export function carregarEstadoMods() {
                 boosters: { indexAtual: data.boosters?.indexAtual || 1, ultimoTimestampEnvio: data.boosters?.ultimoTimestampEnvio || 0 }
             };
         }
-    } catch (e) {}
+    } catch (error) { console.error('[estado] Falha ao ler ou gravar estado:', error); }
     return { ctz: { indexAtual: 1, ultimoTimestampEnvio: 0 }, boosters: { indexAtual: 1, ultimoTimestampEnvio: 0 } };
 }
 
 export function salvarEstadoMods(estado) {
     try {
         fs.writeFileSync(PATHS.modsState, JSON.stringify(estado, null, 2), 'utf8');
-    } catch (e) {}
+    } catch (error) { console.error('[estado] Falha ao ler ou gravar estado:', error); }
 }
 
 // 🎫 Monitoramento de Tickets com IA e Suporte ao PrecisionFix
