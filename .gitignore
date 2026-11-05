@@ -1,0 +1,5 @@
+.env
+node_modules/
+wallpaper_state.json
+mod_estoque_state.json
+tickets_notificados.json
