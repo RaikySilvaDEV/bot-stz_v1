@@ -15,12 +15,34 @@ function Write-DeployLog([string]$Message) {
     Add-Content -LiteralPath $deployLog -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
 }
 
+$mutex = [System.Threading.Mutex]::new($false, 'Global\BotSTZ-AutoDeploy')
+$mutexAcquired = $false
+try {
+    $mutexAcquired = $mutex.WaitOne(0)
+} catch [System.Threading.AbandonedMutexException] {
+    $mutexAcquired = $true
+}
+if (-not $mutexAcquired) {
+    Write-DeployLog 'Outra instância do atualizador já está ativa; esta execução será ignorada.'
+    $mutex.Dispose()
+    exit 0
+}
+
 function Start-BotProcess {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $stdout = Join-Path $logDirectory "bot-$stamp.log"
-    $stderr = Join-Path $logDirectory "bot-$stamp-error.log"
+    $escapedProject = $project.Replace("'", "''")
+    $escapedNode = ([string]$config.NodePath).Replace("'", "''")
+    $escapedLog = $stdout.Replace("'", "''")
+    $consoleScript = @"
+Set-Location -LiteralPath '$escapedProject'
+& '$escapedNode' 'src/process/supervisor.js' 2>&1 | Tee-Object -FilePath '$escapedLog'
+exit `$LASTEXITCODE
+"@
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($consoleScript))
+    $consoleHost = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
     Write-DeployLog 'Iniciando supervisor do bot e Cloudflare Tunnel.'
-    Start-Process -FilePath ([string]$config.NodePath) -ArgumentList 'src/process/supervisor.js' -WorkingDirectory $project -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    Start-Process -FilePath $consoleHost -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedCommand) -WorkingDirectory $project -PassThru -WindowStyle Normal
 }
 
 function Stop-BotProcess($Process) {
@@ -91,4 +113,6 @@ try {
     throw
 } finally {
     Stop-BotProcess $bot
+    if ($mutexAcquired) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
 }

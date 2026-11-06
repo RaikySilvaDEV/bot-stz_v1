@@ -12,7 +12,18 @@ export async function sendPurchaseFeedbackPrompt(user, order) {
     const rows = [new ActionRowBuilder().addComponents([1, 2, 3, 4, 5].map(rating =>
         new ButtonBuilder().setCustomId(`feedback:rate:${order.id}:${rating}`).setLabel(String(rating)).setStyle(rating >= 4 ? ButtonStyle.Success : ButtonStyle.Secondary)
     ))];
-    await user.send({ content: `Como foi sua compra de **${order.productName}**? Avalie de 1 a 5 e, se quiser, deixe um comentário.`, components: rows });
+    const guild = client.guilds.cache.get(order.guildId) ?? await client.guilds.fetch(order.guildId);
+    const ticket = await guild.channels.fetch(order.channelId).catch(() => null);
+    const isBuyerTicket = ticket?.type === ChannelType.GuildText && ticket.topic === `ticket-owner:${order.buyerId}`;
+    const content = `✅ Pagamento confirmado e cargo liberado! Como foi sua compra de **${order.productName}**? Avalie de 1 a 5 e, se quiser, deixe um comentário. Após enviar a avaliação, este ticket será fechado automaticamente.`;
+    if (isBuyerTicket) {
+        await ticket.send({ content, components: rows, allowedMentions: { parse: [] } });
+        return;
+    }
+    await user.send({
+        content: `Como foi sua compra de **${order.productName}**? Avalie de 1 a 5 e, se quiser, deixe um comentário.`,
+        components: rows
+    });
 }
 
 async function publishFeedback(feedback, order) {
