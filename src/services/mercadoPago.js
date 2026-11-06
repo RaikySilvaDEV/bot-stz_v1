@@ -61,7 +61,7 @@ export function validateMercadoPagoSignature(signature, requestId, dataId, secre
     if (!signature || !requestId || !dataId || !secret) return false;
     const parts = Object.fromEntries(signature.split(',').map(part => part.trim().split('=', 2)));
     if (!parts.ts || !parts.v1 || !/^\d+$/.test(parts.ts) || !/^[a-f0-9]{64}$/i.test(parts.v1)) return false;
-    const manifest = `id:${String(dataId).toLowerCase()};request-id:${requestId};ts:${parts.ts};`;
+    const manifest = `id:${String(dataId)};request-id:${requestId};ts:${parts.ts};`;
     const expected = createHmac('sha256', secret).update(manifest).digest();
     const supplied = Buffer.from(parts.v1, 'hex');
     return expected.length === supplied.length && timingSafeEqual(expected, supplied);

@@ -4,14 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Painel do Bot</title>
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="description" content="Painel administrativo do bot Community for FiveM.">
+  <title>Central de controle · Community for FiveM</title>
   <link rel="stylesheet" href="/painel/style.css">
   <script type="module" src="/painel/app.js"></script>
 </head>
 <body>
   <main id="login" class="login-shell">
     <section class="login-card">
-      <div class="brand-mark">STZ</div>
+      <div class="brand-mark" aria-hidden="true">STZ</div>
       <p class="eyebrow">ADMINISTRAÇÃO PRIVADA</p>
       <h1>Painel do bot</h1>
       <p class="muted">Abra pelo botão <strong>Ver na web</strong> do painel privado do Discord para entrar automaticamente. Também pode usar sua chave de acesso.</p>
@@ -26,33 +28,39 @@
 
   <div id="app" class="app-shell" hidden>
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark small">STZ</span><div><strong>Bot Control</strong><small>Community for FiveM</small></div></div>
+      <div class="brand"><span class="brand-mark small" aria-hidden="true">STZ</span><div><strong>Central de controle</strong><small>Community for FiveM</small></div></div>
       <nav id="navigation" aria-label="Seções do painel">
-        <button data-page="overview" class="nav-item active">Visão geral</button>
-        <button data-page="services" class="nav-item">Serviços</button>
-        <button data-page="automations" class="nav-item">Automações</button>
-        <button data-page="channels" class="nav-item">Canais</button>
-        <button data-page="config" class="nav-item">Configuração</button>
-        <button data-page="store" class="nav-item">Loja</button>
-        <button data-page="payments" class="nav-item">Pagamentos</button>
+        <p class="nav-caption">VISÃO GERAL</p>
+        <button data-page="overview" data-label="Visão geral" class="nav-item active" aria-current="page"><span class="nav-icon icon-mask icon-layout-dashboard" aria-hidden="true"></span><span>Visão geral</span></button>
+        <button data-page="services" data-label="Serviços" class="nav-item"><span class="nav-icon icon-mask icon-activity" aria-hidden="true"></span><span>Serviços</span></button>
+        <button data-page="automations" data-label="Automações" class="nav-item"><span class="nav-icon icon-mask icon-bot" aria-hidden="true"></span><span>Automações</span></button>
+        <button data-page="channels" data-label="Canais" class="nav-item"><span class="nav-icon icon-mask icon-hash" aria-hidden="true"></span><span>Canais</span></button>
+        <p class="nav-caption nav-caption-spaced">GERENCIAR</p>
+        <button data-page="announcements" data-label="Avisos" class="nav-item"><span class="nav-icon icon-mask icon-megaphone" aria-hidden="true"></span><span>Avisos</span></button>
+        <button data-page="store" data-label="Loja" class="nav-item"><span class="nav-icon icon-mask icon-store" aria-hidden="true"></span><span>Loja</span></button>
+        <button data-page="payments" data-label="Pagamentos" class="nav-item"><span class="nav-icon icon-mask icon-credit-card" aria-hidden="true"></span><span>Pagamentos</span></button>
+        <button data-page="payouts" data-label="Repasses" class="nav-item"><span class="nav-icon icon-mask icon-wallet-cards" aria-hidden="true"></span><span>Repasses</span></button>
+        <button data-page="assistant" data-label="Assistente" class="nav-item"><span class="nav-icon icon-mask icon-sparkles" aria-hidden="true"></span><span>Assistente</span></button>
+        <p class="nav-caption nav-caption-spaced">CONFIGURAÇÃO</p>
+        <button data-page="config" data-label="Configuração" class="nav-item"><span class="nav-icon icon-mask icon-settings-2" aria-hidden="true"></span><span>Configuração</span></button>
       </nav>
-      <div class="sidebar-foot"><span class="live-dot"></span><span id="connection-label">Conectando…</span></div>
+      <div class="sidebar-foot"><span class="live-dot" aria-hidden="true"></span><div><strong id="connection-label">Conectando…</strong><small>Estado do bot</small></div></div>
     </aside>
 
     <section class="workspace">
       <header class="topbar">
-        <div><p class="eyebrow" id="page-eyebrow">BOT DISCORD</p><h1 id="page-title">Visão geral</h1><p class="muted" id="server-name">Carregando servidor…</p></div>
-        <div class="top-actions"><span id="last-updated" class="muted"></span><button id="refresh" class="secondary">Atualizar</button><button id="logout" class="ghost">Sair</button></div>
+        <div class="page-heading"><p class="eyebrow" id="page-eyebrow">CENTRAL DE CONTROLE</p><h1 id="page-title">Visão geral</h1><p class="muted" id="server-name">Carregando servidor…</p></div>
+        <div class="top-actions"><button id="quick-open" class="search-trigger" type="button" aria-haspopup="dialog" aria-controls="quick-dialog"><span class="icon-mask icon-search" aria-hidden="true"></span><span>Buscar seção</span><kbd>Ctrl K</kbd></button><span id="last-updated" class="muted"></span><button id="refresh" class="secondary" type="button"><span class="icon-mask icon-refresh-cw" aria-hidden="true"></span> Atualizar</button><button id="logout" class="ghost" type="button"><span class="icon-mask icon-log-out" aria-hidden="true"></span> Sair</button></div>
       </header>
-      <div id="notice" class="notice" hidden></div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden><span id="notice-icon" class="icon-mask icon-circle-check" aria-hidden="true"></span><span id="notice-message"></span><button id="notice-close" type="button" aria-label="Fechar aviso"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
       <main id="content" class="content" aria-live="polite"></main>
-      <footer>Chaves e credenciais não são exibidas nos cartões de status. <span id="footer-port"></span></footer>
+      <footer><span>Central de controle · Chaves e credenciais ficam protegidas no servidor.</span><span id="footer-port"></span></footer>
     </section>
   </div>
 
   <dialog id="method-dialog">
     <form id="method-form" method="dialog" class="dialog-card">
-      <div class="dialog-head"><div><p class="eyebrow">LOJA</p><h2 id="method-dialog-title">Novo método</h2></div><button type="button" id="close-dialog" class="icon-button" aria-label="Fechar">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">LOJA</p><h2 id="method-dialog-title">Novo método</h2></div><button type="button" id="close-dialog" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
       <label for="method-type">Tipo</label>
       <select id="method-type" name="type"><option value="pix_manual">Pix manual</option><option value="payment_link">Link de pagamento</option></select>
       <label for="method-name">Nome de identificação</label><input id="method-name" name="name" maxlength="70" required>
@@ -70,9 +78,18 @@
     </form>
   </dialog>
 
+  <dialog id="quick-dialog" class="quick-dialog" aria-labelledby="quick-title">
+    <div class="quick-card">
+      <div class="quick-search-row"><span class="icon-mask icon-search" aria-hidden="true"></span><input id="quick-search" type="search" placeholder="Ir para uma seção…" autocomplete="off" aria-label="Buscar uma seção"><kbd>ESC</kbd></div>
+      <div class="quick-list-head" id="quick-title">NAVEGAÇÃO RÁPIDA</div>
+      <div id="quick-results" class="quick-results" role="listbox" aria-label="Seções do painel"></div>
+      <p class="quick-hint">Use <kbd>↑</kbd> <kbd>↓</kbd> para navegar e <kbd>Enter</kbd> para abrir.</p>
+    </div>
+  </dialog>
+
   <dialog id="coupon-dialog">
     <form id="coupon-form" method="dialog" class="dialog-card">
-      <div class="dialog-head"><div><p class="eyebrow">PROMOÇÃO</p><h2>Novo cupom</h2></div><button type="button" id="close-coupon" class="icon-button" aria-label="Fechar">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">PROMOÇÃO</p><h2>Novo cupom</h2></div><button type="button" id="close-coupon" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
       <label for="coupon-code">Código</label><input id="coupon-code" maxlength="24" pattern="[A-Za-z0-9_-]{3,24}" required>
       <label for="coupon-percent">Desconto (%)</label><input id="coupon-percent" type="number" min="1" max="90" value="10" required>
       <label for="coupon-uses">Usos máximos</label><input id="coupon-uses" type="number" min="1" max="100000" value="50" required>
@@ -84,7 +101,7 @@
 
   <dialog id="product-dialog">
     <form id="product-form" method="dialog" class="dialog-card">
-      <div class="dialog-head"><div><p class="eyebrow">CATÁLOGO</p><h2>Novo produto</h2></div><button type="button" id="close-product" class="icon-button" aria-label="Fechar">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">CATÁLOGO</p><h2>Novo produto</h2></div><button type="button" id="close-product" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
       <div class="form-grid two"><div><label for="new-product-name">Nome</label><input id="new-product-name" maxlength="80" required></div><div><label for="new-product-value">Identificador interno</label><input id="new-product-value" maxlength="32" pattern="[a-z0-9][a-z0-9_-]{1,31}" placeholder="ex: vip-mensal" required></div></div>
       <label for="new-product-description">Descrição</label><textarea id="new-product-description" maxlength="1000" rows="3" required></textarea>
       <div class="form-grid three"><div><label for="new-product-role-name">Nome exibido do cargo</label><input id="new-product-role-name" maxlength="100" required></div><div><label for="new-product-role">Cargo do Discord</label><select id="new-product-role" required><option value="" disabled selected>Selecione o cargo a entregar</option></select></div><div><label for="new-product-days">Validade (dias)</label><input id="new-product-days" type="number" min="1" max="3650" value="30" required></div></div>
@@ -92,6 +109,17 @@
       <label for="new-product-image">Imagem/GIF HTTPS (opcional)</label><input id="new-product-image" type="url" maxlength="500" placeholder="https://…">
       <p id="product-error" class="error" aria-live="polite"></p>
       <div class="dialog-actions"><button type="button" id="cancel-product" class="secondary">Cancelar</button><button id="save-product" class="primary" type="submit">Criar produto</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="announcement-dialog" aria-labelledby="announcement-dialog-title">
+    <form id="announcement-form" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><p class="eyebrow">AVISOS DO SERVIDOR</p><h2 id="announcement-dialog-title">Novo aviso</h2></div><button type="button" id="close-announcement" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
+      <label for="announcement-title">Título <span class="field-limit">até 100 caracteres</span></label><input id="announcement-title" maxlength="100" required>
+      <label for="announcement-text">Mensagem <span class="field-limit">até 1800 caracteres</span></label><textarea id="announcement-text" rows="7" maxlength="1800" required></textarea>
+      <p id="announcement-error" class="error" aria-live="polite"></p>
+      <p class="detail">Ao salvar, o aviso também será publicado ou atualizado no canal FiveM configurado.</p>
+      <div class="dialog-actions"><button type="button" id="cancel-announcement" class="secondary">Cancelar</button><button id="save-announcement" class="primary" type="submit">Publicar aviso</button></div>
     </form>
   </dialog>
 </body>

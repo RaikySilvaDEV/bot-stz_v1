@@ -9,7 +9,7 @@ import { getSettings, updateSettings } from '../repositories/settingsRepository.
 import { getDashboardDetails } from '../features/dashboard.js';
 import { updatePublicStatusIfConfigured } from '../features/payments.js';
 import { client } from '../client.js';
-import { GUILD_ID } from '../config/constants.js';
+import { GUILD_ID, PATHS } from '../config/constants.js';
 import {
     COMMERCE_AUTOMATIONS, createCommerceProduct, getCommerceConfig, getCommerceProduct, getCommerceProducts,
     removeCommerceProduct, setCommerceAutomation, setProductActive,
@@ -22,8 +22,15 @@ import { getOrders, getOrderById } from '../repositories/orderRepository.js';
 import { getFeedback } from '../repositories/feedbackRepository.js';
 import { handlePaidOrder } from '../features/commerceAutomations.js';
 import { publicarVitrineLoja } from '../features/commerce.js';
+import { criarAnuncioFiveM, atualizarAnuncioFiveM, removerAnuncioFiveM, listarAnunciosFiveM } from '../features/fivemAnnouncements.js';
 import { mercadoPagoConfigReady } from '../services/mercadoPago.js';
 import { getMercadoPagoSettingsStatus, saveMercadoPagoSettings } from '../services/mercadoPagoSettings.js';
+import { responderAssistentePainel } from '../services/panelAssistant.js';
+import {
+    configurePartnerPayout, createPayoutDraft, getPartnerPayoutDashboard,
+    reconcilePartnerPayout, sendPartnerPayout
+} from '../services/partnerPayouts.js';
+import { logAction } from '../services/audit.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
     dashboardLoginResponse, dashboardLogoutResponse, dashboardPasswordValid,
@@ -37,6 +44,7 @@ const PAGE_FILES = {
     '/painel/app.js': ['app.js', 'text/javascript; charset=utf-8'],
     '/painel/style.css': ['style.css', 'text/css; charset=utf-8']
 };
+const LUCIDE_ICONS = new Set(fs.readdirSync(path.join(PUBLIC_DIR, 'icons')).filter(name => name.endsWith('.svg')));
 
 function responder(res, status, data) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -62,8 +70,10 @@ function sendStoreImage(res, filename) {
     const allowed = new Set(getCommerceProducts().map(product => product.imageFile).filter(Boolean));
     if (!allowed.has(filename) || path.basename(filename) !== filename) return responder(res, 404, { erro: 'Imagem não encontrada.' });
     try {
-        const image = fs.readFileSync(path.join(process.cwd(), 'assets', 'store', filename));
-        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+        const image = fs.readFileSync(path.join(PATHS.storeImages, filename));
+        const contentType = ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' })[path.extname(filename).toLowerCase()];
+        if (!contentType) return responder(res, 404, { erro: 'Formato de imagem não suportado.' });
+        res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
         res.end(image);
     } catch { responder(res, 404, { erro: 'Imagem não encontrada.' }); }
 }
@@ -163,6 +173,12 @@ export async function handleDashboardRoute(req, res, url, readJson) {
     if (req.method === 'GET' && PAGE_FILES[pathname]) {
         const [filename, contentType] = PAGE_FILES[pathname];
         sendPageFile(res, filename, contentType);
+        return true;
+    }
+    const iconMatch = pathname.match(/^\/painel\/icons\/([a-z0-9-]+\.svg)$/);
+    if (req.method === 'GET' && iconMatch) {
+        if (!LUCIDE_ICONS.has(iconMatch[1])) return responder(res, 404, { erro: 'Ícone não encontrado.' }), true;
+        sendPageFile(res, `icons/${iconMatch[1]}`, 'image/svg+xml; charset=utf-8');
         return true;
     }
     const storeImageMatch = pathname.match(/^\/painel\/store-images\/([^/]+)$/);
@@ -274,6 +290,66 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const roles = guild.roles.cache.filter(role => role.id !== guild.id && !role.managed && bot?.roles.highest.comparePositionTo(role) > 0)
                 .map(role => ({ id: role.id, name: role.name })).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
             return responder(res, 200, { roles }), true;
+        }
+        if (pathname === '/api/painel/announcements' && req.method === 'GET') {
+            return responder(res, 200, { announcements: listarAnunciosFiveM() }), true;
+        }
+        if (pathname === '/api/painel/announcements' && req.method === 'POST') {
+            const body = await readJson(req);
+            const announcement = await criarAnuncioFiveM({ titulo: body?.titulo, texto: body?.texto, actorId: 'painel-web' });
+            return responder(res, 201, { announcement, announcements: listarAnunciosFiveM() }), true;
+        }
+        const announcementMatch = pathname.match(/^\/api\/painel\/announcements\/([^/]+)$/);
+        if (announcementMatch && req.method === 'PUT') {
+            const announcement = await atualizarAnuncioFiveM(decodeURIComponent(announcementMatch[1]), await readJson(req), 'painel-web');
+            if (!announcement) return responder(res, 404, { erro: 'Aviso não encontrado.' }), true;
+            return responder(res, 200, { announcement, announcements: listarAnunciosFiveM() }), true;
+        }
+        if (announcementMatch && req.method === 'DELETE') {
+            const removed = await removerAnuncioFiveM(decodeURIComponent(announcementMatch[1]), 'painel-web');
+            if (!removed) return responder(res, 404, { erro: 'Aviso não encontrado.' }), true;
+            return responder(res, 200, { announcements: listarAnunciosFiveM() }), true;
+        }
+        if (pathname === '/api/painel/assistant' && req.method === 'POST') {
+            const body = await readJson(req);
+            if (typeof body?.message !== 'string' || !body.message.trim() || body.message.length > 1200) {
+                return responder(res, 400, { erro: 'Escreva uma pergunta de até 1200 caracteres.' }), true;
+            }
+            const answer = await responderAssistentePainel(body.message.trim());
+            return responder(res, 200, { answer }), true;
+        }
+        if (pathname === '/api/painel/payouts' && req.method === 'GET') {
+            return responder(res, 200, getPartnerPayoutDashboard()), true;
+        }
+        if (pathname === '/api/painel/payouts/secrets' && req.method === 'PUT') {
+            const body = await readJson(req);
+            const settings = saveMercadoPagoSettings({
+                payoutsAccessToken: body?.accessToken,
+                payoutsTestMode: body?.testMode,
+                payoutsPrivateKeyPath: body?.privateKeyPath
+            });
+            return responder(res, 200, { settings }), true;
+        }
+        if (pathname === '/api/painel/payouts/settings' && req.method === 'PUT') {
+            const body = await readJson(req);
+            const result = configurePartnerPayout({
+                sharePercent: Number(body?.sharePercent), pixType: body?.pixType,
+                pixKey: typeof body?.pixKey === 'string' ? body.pixKey : ''
+            });
+            await logAction(client.guilds.cache.get(GUILD_ID), 'painel-web', 'Configuração de repasse atualizada', `Percentual ${result.sharePercent}% · Pix ${result.recipientMasked}`);
+            return responder(res, 200, { payouts: getPartnerPayoutDashboard() }), true;
+        }
+        if (pathname === '/api/painel/payouts/drafts' && req.method === 'POST') {
+            const payout = createPayoutDraft();
+            await logAction(client.guilds.cache.get(GUILD_ID), 'painel-web', 'Rascunho de repasse criado', `${payout.orderCount} pedido(s) · ${payout.totalCents} centavos`);
+            return responder(res, 201, { payout, payouts: getPartnerPayoutDashboard() }), true;
+        }
+        const payoutActionMatch = pathname.match(/^\/api\/painel\/payouts\/([a-f0-9-]+)\/(send|reconcile)$/i);
+        if (payoutActionMatch && req.method === 'POST') {
+            const [, payoutId, action] = payoutActionMatch;
+            const payout = action === 'send' ? await sendPartnerPayout(payoutId) : await reconcilePartnerPayout(payoutId);
+            await logAction(client.guilds.cache.get(GUILD_ID), 'painel-web', action === 'send' ? 'Repasse enviado ao Mercado Pago' : 'Repasse conciliado', `Repasse ${payout.id} · ${payout.status}`);
+            return responder(res, 200, { payout, payouts: getPartnerPayoutDashboard() }), true;
         }
         if (pathname === '/api/painel/commerce/products' && req.method === 'POST') {
             const body = await readJson(req);

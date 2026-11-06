@@ -2,7 +2,7 @@ import { readJsonData, writeJsonData } from '../data/jsonStore.js';
 import { PRODUCTS } from '../config/products.js';
 
 const FILE = 'comercio-config.json';
-const AUTOMATIONS = ['mercadoPago', 'automaticDelivery', 'roleExpiration', 'paymentReminders', 'abandonedOrders', 'coupons', 'stock', 'digitalDelivery', 'salesReports', 'purchaseFeedback'];
+const AUTOMATIONS = ['mercadoPago', 'automaticDelivery', 'roleExpiration', 'paymentReminders', 'abandonedOrders', 'coupons', 'stock', 'digitalDelivery', 'salesReports', 'purchaseFeedback', 'partnerPayouts'];
 const EMPTY = {
     automations: Object.fromEntries(AUTOMATIONS.map(key => [key, false])),
     roles: Object.fromEntries(PRODUCTS.map(product => [product.value, null])),
@@ -22,7 +22,7 @@ export const COMMERCE_AUTOMATION_LABELS = {
     mercadoPago: 'Mercado Pago e confirmação automática', automaticDelivery: 'Liberação automática de cargos',
     roleExpiration: 'Expiração e remoção de cargos', paymentReminders: 'Lembretes de pagamento',
     abandonedOrders: 'Cancelamento de carrinhos abandonados', coupons: 'Cupons de desconto',
-    stock: 'Controle de estoque e alerta de estoque baixo', digitalDelivery: 'Entrega automática de arquivos e instruções',
+    stock: 'Controle de estoque e alerta de estoque baixo', digitalDelivery: 'Entrega automática de arquivos e instruções', partnerPayouts: 'Repasses ao sócio via Mercado Pago Payouts',
     salesReports: 'Relatórios diários de vendas', purchaseFeedback: 'Pesquisa de satisfação pós-compra'
 };
 

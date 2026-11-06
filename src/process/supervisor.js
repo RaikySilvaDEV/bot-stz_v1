@@ -7,6 +7,7 @@ import { saveMercadoPagoSettings } from '../services/mercadoPagoSettings.js';
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const TUNNEL_URL_PATTERN = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
 const STARTUP_TUNNEL_WAIT_MS = 12_000;
+const API_PORT = Number.parseInt(process.env.API_PORT ?? '3001', 10);
 
 let bot = null;
 let tunnel = null;
@@ -72,14 +73,17 @@ function processTunnelOutput(chunk) {
 
         const dashboardUrl = `${publicUrl}/painel`;
         const webhookUrl = `${publicUrl}/api/webhooks/mercado-pago`;
+        const payoutsWebhookUrl = `${publicUrl}/api/webhooks/mercado-pago-payouts`;
         const webhookChanged = process.env.MERCADO_PAGO_WEBHOOK_URL !== webhookUrl;
-        const changed = process.env.DASHBOARD_PUBLIC_URL !== dashboardUrl || webhookChanged;
+        const payoutsWebhookChanged = process.env.MERCADO_PAGO_PAYOUTS_WEBHOOK_URL !== payoutsWebhookUrl;
+        const changed = process.env.DASHBOARD_PUBLIC_URL !== dashboardUrl || webhookChanged || payoutsWebhookChanged;
         process.env.DASHBOARD_PUBLIC_URL = dashboardUrl;
-        if (webhookChanged) {
-            process.env.MERCADO_PAGO_WEBHOOK_URL = webhookUrl;
+        if (webhookChanged) process.env.MERCADO_PAGO_WEBHOOK_URL = webhookUrl;
+        if (payoutsWebhookChanged) process.env.MERCADO_PAGO_PAYOUTS_WEBHOOK_URL = payoutsWebhookUrl;
+        if (webhookChanged || payoutsWebhookChanged) {
             try {
-                saveMercadoPagoSettings({ webhookUrl });
-                console.log('[cloudflared] URL do webhook do Mercado Pago atualizada.');
+                saveMercadoPagoSettings({ ...(webhookChanged ? { webhookUrl } : {}), ...(payoutsWebhookChanged ? { payoutsWebhookUrl } : {}) });
+                console.log('[cloudflared] URLs de webhook do Mercado Pago atualizadas.');
             } catch (error) {
                 console.error('[cloudflared] Não foi possível persistir a nova URL do webhook:', error.message);
             }
@@ -98,8 +102,8 @@ function processTunnelOutput(chunk) {
 function startTunnel() {
     if (stopping || tunnel) return;
 
-    console.log('[supervisor] Iniciando o túnel Cloudflare para http://127.0.0.1:3001…');
-    tunnel = spawn('cloudflared', ['tunnel', '--url', 'http://127.0.0.1:3001'], {
+    console.log(`[supervisor] Iniciando o túnel Cloudflare para http://127.0.0.1:${API_PORT}…`);
+    tunnel = spawn('cloudflared', ['tunnel', '--url', `http://127.0.0.1:${API_PORT}`], {
         cwd: PROJECT_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true
