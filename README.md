@@ -40,6 +40,14 @@ npm start
 
 A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel e o bot precisam apontar para a mesma porta. O painel local fica em `http://127.0.0.1:3001/painel`. Para acesso externo, use HTTPS e defina `DASHBOARD_PUBLIC_URL` com a URL pública completa do painel. Quick Tunnels não garantem um endereço fixo.
 
+### Instalação no Windows com atualização automática
+
+O script `scripts/setup-windows-auto-deploy.ps1` prepara um clone Git separado em `C:\Bots\bot-stz-v1`, preserva o `.env` e os dados locais que já existirem, baixa o `cloudflared` oficial e cria uma tarefa do Windows para iniciar o supervisor no boot e verificar o branch configurado a cada minuto. Quando há novo commit, ele atualiza o código, reinstala dependências e reinicia o bot. Os logs ficam em `C:\ProgramData\BotSTZ\logs`. O computador precisa permanecer ligado e sem suspensão.
+
+Para migrar uma instalação baixada como ZIP, pare primeiro o `npm start` antigo com `Ctrl+C`. Abra o PowerShell como Administrador na máquina de destino e rode o instalador apontando `-SourcePath` para a pasta ZIP existente. Como este repositório é público, não é necessário conectar uma conta GitHub para fazer `git fetch`. O branch padrão é `codex/painel-auditoria-repasses`; após integrar o PR, execute novamente com `-Branch main` para acompanhar a produção.
+
+O atualizador roda código publicado nesse repositório na máquina. Proteja a conta GitHub e limite quem pode publicar no branch acompanhado. A pasta de instalação é separada da cópia antiga; o script não apaga a pasta antiga.
+
 ## Painel web
 
 O painel (`/painel`) mostra estado do bot, automações, canais, loja, pagamentos e pedidos. Ele também permite administrar produtos, preços, imagens, cargos de entrega, estoque, cupons e configurações disponíveis na interface. O acesso pode usar `DASHBOARD_PASSWORD`; se estiver vazia, a sessão do painel usa `API_KEY`. A rota web de autenticação usa cookie `HttpOnly` e as operações de alteração validam origem.
