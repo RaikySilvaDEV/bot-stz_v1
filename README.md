@@ -49,6 +49,7 @@ Para migrar uma instalação baixada como ZIP, pare primeiro o `npm start` antig
 Exemplo para a máquina remota atual (ajuste o caminho se a pasta for diferente):
 
 ```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
 $ErrorActionPreference = 'Stop'
 $setup = Join-Path $env:TEMP 'setup-bot-stz.ps1'
 Invoke-WebRequest 'https://raw.githubusercontent.com/RaikySilvaDEV/bot-stz_v1/codex/painel-auditoria-repasses/scripts/setup-windows-auto-deploy.ps1' -OutFile $setup
