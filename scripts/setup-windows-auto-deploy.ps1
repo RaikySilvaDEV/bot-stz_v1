@@ -64,7 +64,13 @@ if (Test-Path -LiteralPath $InstallPath) {
         throw "$InstallPath já existe e não é um clone Git. Nada foi sobrescrito. Escolha outro -InstallPath ou mova essa pasta manualmente."
     }
     Invoke-Checked $gitCommand.Source @('-C', $InstallPath, 'fetch', 'origin', $Branch) 'git fetch'
-    Invoke-Checked $gitCommand.Source @('-C', $InstallPath, 'checkout', $Branch) 'git checkout'
+    $localBranch = & $gitCommand.Source -C $InstallPath branch --list $Branch
+    if ($LASTEXITCODE -ne 0) { throw 'Não foi possível consultar as branches locais.' }
+    if ($localBranch) {
+        Invoke-Checked $gitCommand.Source @('-C', $InstallPath, 'checkout', $Branch) 'git checkout'
+    } else {
+        Invoke-Checked $gitCommand.Source @('-C', $InstallPath, 'checkout', '--track', '-b', $Branch, "origin/$Branch") 'git checkout da branch remota'
+    }
     Invoke-Checked $gitCommand.Source @('-C', $InstallPath, 'pull', '--ff-only', 'origin', $Branch) 'git pull'
 } else {
     New-Item -ItemType Directory -Path (Split-Path -Parent $InstallPath) -Force | Out-Null
