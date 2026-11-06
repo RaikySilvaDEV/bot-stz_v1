@@ -46,6 +46,15 @@ O script `scripts/setup-windows-auto-deploy.ps1` prepara um clone Git separado e
 
 Para migrar uma instalação baixada como ZIP, pare primeiro o `npm start` antigo com `Ctrl+C`. Abra o PowerShell como Administrador na máquina de destino e rode o instalador apontando `-SourcePath` para a pasta ZIP existente. Como este repositório é público, não é necessário conectar uma conta GitHub para fazer `git fetch`. O branch padrão é `codex/painel-auditoria-repasses`; após integrar o PR, execute novamente com `-Branch main` para acompanhar a produção.
 
+Exemplo para a máquina remota atual (ajuste o caminho se a pasta for diferente):
+
+```powershell
+$ErrorActionPreference = 'Stop'
+$setup = Join-Path $env:TEMP 'setup-bot-stz.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/RaikySilvaDEV/bot-stz_v1/codex/painel-auditoria-repasses/scripts/setup-windows-auto-deploy.ps1' -OutFile $setup
+& $setup -SourcePath 'C:\Users\Administrator\Desktop\bot-stz_v1-main'
+```
+
 O atualizador roda código publicado nesse repositório na máquina. Proteja a conta GitHub e limite quem pode publicar no branch acompanhado. A pasta de instalação é separada da cópia antiga; o script não apaga a pasta antiga.
 
 ## Painel web

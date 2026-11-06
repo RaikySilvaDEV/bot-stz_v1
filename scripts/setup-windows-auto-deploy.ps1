@@ -76,8 +76,15 @@ $targetEnv = Join-Path $InstallPath '.env'
 if (-not (Test-Path -LiteralPath $targetEnv)) {
     Copy-Item -LiteralPath (Join-Path $SourcePath '.env') -Destination $targetEnv
 }
-foreach ($directory in @('data', 'ModArmazem', 'Wallpapers')) {
+foreach ($directory in @('data', 'ModArmazem', 'Wallpapers', 'assets')) {
     Copy-MissingTree (Join-Path $SourcePath $directory) (Join-Path $InstallPath $directory)
+}
+foreach ($legacyFile in @('wallpaper_state.json', 'mod_estoque_state.json', 'tickets_notificados.json', 'anuncios_fivem.json')) {
+    $legacySource = Join-Path $SourcePath $legacyFile
+    $legacyTarget = Join-Path $InstallPath $legacyFile
+    if ((Test-Path -LiteralPath $legacySource -PathType Leaf) -and -not (Test-Path -LiteralPath $legacyTarget)) {
+        Copy-Item -LiteralPath $legacySource -Destination $legacyTarget
+    }
 }
 
 $tokenCheck = Get-Content -LiteralPath $targetEnv -Raw
