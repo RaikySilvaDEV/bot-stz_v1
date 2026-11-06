@@ -2,18 +2,26 @@ import { AttachmentBuilder, ChannelType, MessageFlags } from 'discord.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ai, client } from '../client.js';
-import { GUILD_ID, MEU_ID_USUARIO, PATHS } from '../config/constants.js';
+import { GUILD_ID, PATHS } from '../config/constants.js';
+import { isServerManager } from '../services/authorization.js';
 import { getAuditEntries } from '../repositories/auditRepository.js';
 import { getPartners } from '../repositories/partnershipRepository.js';
 import { getSettings, updateSettings } from '../repositories/settingsRepository.js';
-import { getStockState, getWallpaperState } from '../repositories/stateRepository.js';
+import { getNotifiedTicketIds, getStockState, getWallpaperState } from '../repositories/stateRepository.js';
+import { getAutomationMessageIds } from '../repositories/automationRepository.js';
 import { getPartnershipCount } from './partnerships.js';
 import { listarAnunciosFiveM } from './fivemAnnouncements.js';
 import { logAction } from '../services/audit.js';
 import { getApiStatus } from '../api/server.js';
+import { getRemoteTranscriptReferences } from '../services/transcripts.js';
+import { getPaymentConfig } from '../repositories/paymentMethodsRepository.js';
+import { getCommerceConfig } from '../repositories/commerceRepository.js';
+import { getOrders } from '../repositories/orderRepository.js';
+import { getFeedback } from '../repositories/feedbackRepository.js';
+import { getProductPrices } from '../repositories/productCatalogRepository.js';
 
 const CHANNEL_LABELS = {
-    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets',
+    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets', ticketPanel: 'Painel de tickets',
     verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers', suggestions: 'Sugestões',
     purchaseStatus: 'Status de compras', supportNotices: 'Avisos de suporte', roleNews: 'Novidades de cargos',
     precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ', stockBoosters: 'Armazém CTZ Boosters', audit: 'Logs administrativos'
@@ -25,7 +33,7 @@ const AUTOMATION_CHOICES = Object.entries(AUTOMATION_LABELS).map(([value, name])
 export { CHANNEL_CHOICES, AUTOMATION_CHOICES };
 
 export function ehDono(interaction) {
-    return interaction.user.id === MEU_ID_USUARIO || interaction.user.id === interaction.guild?.ownerId;
+    return isServerManager(interaction);
 }
 
 function contarArquivosDoItem(folder, index) {
@@ -64,8 +72,11 @@ export async function tratarInteracaoAdministracao(interaction) {
         const apiStatus = getApiStatus();
         const wallpaperState = getWallpaperState();
         const stockState = getStockState();
-        const stockRemaining = Math.max(0, 5 * 60 * 60 * 1000 - (Date.now() - Math.min(stockState.ctz.ultimoTimestampEnvio, stockState.boosters.ultimoTimestampEnvio)));
-        const stockRemainingText = stockRemaining === 0 ? 'pronto para publicar' : `${Math.floor(stockRemaining / 3_600_000)}h ${Math.floor((stockRemaining % 3_600_000) / 60_000)}min`;
+        const tempoRestante = timestamp => {
+            if (!timestamp) return 'pronto para verificar';
+            const remaining = Math.max(0, 5 * 60 * 60 * 1000 - (Date.now() - timestamp));
+            return remaining === 0 ? 'pronto para verificar' : `${Math.floor(remaining / 3_600_000)}h ${Math.floor((remaining % 3_600_000) / 60_000)}min`;
+        };
         const lines = [
             `Discord: ${client.isReady() ? 'conectado' : 'desconectado'}${guild ? ` em **${guild.name}**` : ''}`,
             `Latência: ${client.ws.ping >= 0 ? `${client.ws.ping} ms` : 'aguardando gateway'}`,
@@ -75,9 +86,8 @@ export async function tratarInteracaoAdministracao(interaction) {
             `Gemini: ${ai ? (settings.automations.aiResponses ? 'atendimento ligado' : 'atendimento pausado') : 'GEMINI_API_KEY ausente'}`,
             `API local: ${apiStatus.running ? `ativa na porta ${apiStatus.port}` : 'inativa (configure API_KEY para ativar)'}`,
             `Wallpaper atual: dia ${wallpaperState.diaAtual}/105 (${fs.existsSync(path.join(PATHS.wallpapers, `${wallpaperState.diaAtual}.png`)) ? 'arquivo pronto' : 'arquivo ausente'})`,
-            `Armazém CTZ: item #${stockState.ctz.indexAtual}, ${contarArquivosDoItem(PATHS.ctz, stockState.ctz.indexAtual)} arquivo(s)`,
-            `Armazém Boosters: item #${stockState.boosters.indexAtual}, ${contarArquivosDoItem(PATHS.boosters, stockState.boosters.indexAtual)} arquivo(s)`,
-            `Próxima verificação dos armazéns: ${stockRemainingText}`,
+            `Armazém CTZ: item #${stockState.ctz.indexAtual}, ${contarArquivosDoItem(PATHS.ctz, stockState.ctz.indexAtual)} arquivo(s), ${tempoRestante(stockState.ctz.ultimoTimestampEnvio)}`,
+            `Armazém Boosters: item #${stockState.boosters.indexAtual}, ${contarArquivosDoItem(PATHS.boosters, stockState.boosters.indexAtual)} arquivo(s), ${tempoRestante(stockState.boosters.ultimoTimestampEnvio)}`,
             `Memória: ${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB`,
             `Canais não encontrados: ${missingChannels.length ? missingChannels.join(', ') : 'nenhum'}`
         ];
@@ -99,13 +109,29 @@ export async function tratarInteracaoAdministracao(interaction) {
             criadoEm: new Date().toISOString(),
             servidor: GUILD_ID,
             configuracoes: getSettings(),
+            metodosPagamento: (() => {
+                const paymentConfig = getPaymentConfig();
+                return {
+                    ...paymentConfig,
+                    methods: paymentConfig.methods.map(({ pixKey, ...method }) => method)
+                };
+            })(),
+            configuracaoComercial: getCommerceConfig(),
+            precosCatalogo: getProductPrices(),
+            pedidosLoja: getOrders(),
+            avaliacoesLoja: getFeedback(),
             parcerias: getPartners(),
             anunciosFiveM: listarAnunciosFiveM(),
-            logsAdministrativos: getAuditEntries(100)
+            estadoTickets: getNotifiedTicketIds(),
+            estadoWallpaper: getWallpaperState(),
+            estadoArmazens: getStockState(),
+            idsMensagensAutomacao: getAutomationMessageIds(),
+            referenciasTranscricoesRemotas: getRemoteTranscriptReferences(),
+            logsAdministrativos: getAuditEntries(1000)
         };
         const filename = `backup-community-${new Date().toISOString().slice(0, 10)}.json`;
         const attachment = new AttachmentBuilder(Buffer.from(`${JSON.stringify(snapshot, null, 2)}\n`, 'utf8'), { name: filename });
-        await interaction.reply({ content: 'Backup gerado. Inclui configurações, parcerias, anúncios e os últimos 100 logs; não inclui tokens nem transcrições de tickets.', files: [attachment], flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: 'Backup completo gerado. Inclui configurações e estados persistentes; não inclui tokens nem transcrições de tickets.', files: [attachment], flags: MessageFlags.Ephemeral });
         await logConfigurationChange(interaction, 'Backup gerado', filename);
         return true;
     }

@@ -10,3 +10,4 @@ node_modules/
 /data/transcripts/
 bot-runtime.log
 bot-runtime-error.log
+.mp-integrate-progress.md

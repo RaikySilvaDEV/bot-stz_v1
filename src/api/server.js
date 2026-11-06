@@ -1,19 +1,23 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { handleDashboardRoute } from './dashboardRoutes.js';
+import { handleMercadoPagoWebhook } from './mercadoPagoWebhook.js';
 import {
     atualizarAnuncioFiveM, criarAnuncioFiveM, listarAnunciosFiveM, removerAnuncioFiveM
 } from '../features/fivemAnnouncements.js';
 
 const API_PORT = Number.parseInt(process.env.API_PORT ?? '3001', 10);
+const API_HOST = process.env.API_HOST?.trim() || '127.0.0.1';
 const API_KEY = process.env.API_KEY ?? '';
 const MAX_BODY_BYTES = 10 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 120;
 const requestsByAddress = new Map();
 let servidor;
+let portaAtiva = API_PORT;
 
 export function getApiStatus() {
-    return { running: Boolean(servidor?.listening), port: API_PORT };
+    return { running: Boolean(servidor?.listening), port: portaAtiva };
 }
 
 function responder(res, status, dados) {
@@ -57,8 +61,11 @@ async function lerJson(req) {
 
 async function lidarComRequisicao(req, res) {
     if (limiteAtingido(req)) return responder(res, 429, { erro: 'Limite de requisições excedido. Aguarde um minuto.' });
-    if (!chaveValida(req)) return responder(res, 401, { erro: 'Chave inválida. Envie Authorization: Bearer SUA_API_KEY.' });
     const url = new URL(req.url, 'http://127.0.0.1');
+    if (await handleMercadoPagoWebhook(req, res, url, lerJson)) return;
+    if (await handleDashboardRoute(req, res, url, lerJson)) return;
+    if (!API_KEY) return responder(res, 503, { erro: 'A API FiveM está desativada porque API_KEY não foi configurada.' });
+    if (!chaveValida(req)) return responder(res, 401, { erro: 'Chave inválida. Envie Authorization: Bearer SUA_API_KEY.' });
     const rota = url.pathname.match(/^\/api\/anuncios\/fivem\/?(?:([^/]+)\/?)?$/);
     if (!rota) return responder(res, 404, { erro: 'Rota não encontrada.' });
     const id = rota[1] ?? null;
@@ -90,17 +97,39 @@ async function lidarComRequisicao(req, res) {
 
 export function iniciarApiAnunciosFiveM() {
     if (servidor) return;
-    if (!API_KEY) {
-        console.warn('[api] API_KEY não configurada; API Postman não iniciada.');
+    const webhookReady = Boolean(process.env.MERCADO_PAGO_ACCESS_TOKEN && process.env.MERCADO_PAGO_WEBHOOK_SECRET && process.env.MERCADO_PAGO_WEBHOOK_URL);
+    if (!API_KEY && !process.env.DASHBOARD_PASSWORD && !webhookReady) {
+        console.warn('[api] Configure API_KEY, DASHBOARD_PASSWORD ou as credenciais do webhook de pagamentos para iniciar a API e o painel web.');
         return;
     }
     if (!Number.isInteger(API_PORT) || API_PORT < 1 || API_PORT > 65535) {
         console.error('[api] API_PORT inválida; use uma porta entre 1 e 65535.');
         return;
     }
-    servidor = createServer((req, res) => void lidarComRequisicao(req, res));
-    servidor.on('error', error => console.error('[api] Falha ao iniciar API:', error));
-    servidor.listen(API_PORT, '127.0.0.1', () => {
-        console.log(`[api] API de anúncios FiveM disponível em http://127.0.0.1:${API_PORT}`);
+    const instancia = createServer((req, res) => {
+        void lidarComRequisicao(req, res).catch(error => {
+            console.error('[api] Falha inesperada ao processar requisição:', error);
+            if (!res.headersSent) responder(res, 500, { erro: 'Falha interna ao processar a requisição.' });
+            else res.destroy();
+        });
     });
+    servidor = instancia;
+    let tentativasPorta = 0;
+    instancia.on('error', error => {
+        if (error.code === 'EADDRINUSE' && tentativasPorta < 10 && API_PORT + tentativasPorta + 1 <= 65535) {
+            tentativasPorta += 1;
+            portaAtiva = API_PORT + tentativasPorta;
+            console.warn(`[api] Porta ${portaAtiva - 1} ocupada; tentando a porta ${portaAtiva}.`);
+            instancia.listen(portaAtiva, API_HOST);
+            return;
+        }
+        console.error('[api] Falha ao iniciar API e painel web; o bot continuará funcionando:', error);
+        if (servidor === instancia) servidor = undefined;
+    });
+    instancia.on('listening', () => {
+        const address = instancia.address();
+        portaAtiva = typeof address === 'object' && address ? address.port : API_PORT;
+        console.log(`[api] API e painel web disponíveis em http://${API_HOST}:${portaAtiva} (rota /painel)`);
+    });
+    instancia.listen(API_PORT, API_HOST);
 }

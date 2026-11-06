@@ -20,6 +20,12 @@ export function addNotifiedTicketId(channelId) {
     if (!ids.includes(channelId)) writeJsonData('notified-tickets.json', [...ids, channelId]);
 }
 
+export function removeNotifiedTicketId(channelId) {
+    const ids = getNotifiedTicketIds();
+    const remaining = ids.filter(id => id !== channelId);
+    if (remaining.length !== ids.length) writeJsonData('notified-tickets.json', remaining);
+}
+
 export function getWallpaperState() {
     const state = readJsonData('wallpaper-state.json', DEFAULT_WALLPAPER_STATE, LEGACY_WALLPAPER_FILE);
     const day = Number(state?.diaAtual);

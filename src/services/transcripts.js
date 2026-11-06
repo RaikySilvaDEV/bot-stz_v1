@@ -51,15 +51,19 @@ export async function removeExpiredTranscripts(now = Date.now()) {
 }
 
 export function rememberRemoteTranscript({ guildId, channelId, messageId }) {
-    const stored = readJsonData(REMOTE_TRANSCRIPTS_FILE, []);
-    const references = Array.isArray(stored) ? stored : [];
+    const references = getRemoteTranscriptReferences();
     references.push({ guildId, channelId, messageId, deleteAfter: Date.now() + RETENTION_DAYS * 24 * 60 * 60 * 1000 });
     writeJsonData(REMOTE_TRANSCRIPTS_FILE, references);
 }
 
-export async function removeExpiredRemoteTranscripts(client, now = Date.now()) {
+export function getRemoteTranscriptReferences() {
     const stored = readJsonData(REMOTE_TRANSCRIPTS_FILE, []);
-    if (!Array.isArray(stored) || !stored.length) return 0;
+    return Array.isArray(stored) ? stored : [];
+}
+
+export async function removeExpiredRemoteTranscripts(client, now = Date.now()) {
+    const stored = getRemoteTranscriptReferences();
+    if (!stored.length) return 0;
     const keep = [];
     let removed = 0;
     for (const reference of stored) {

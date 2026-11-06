@@ -1,13 +1,29 @@
 import { client } from '../client.js';
 import { iniciarVarreduraTicketsOrfaos } from '../features/tickets.js';
-import { configurarCanalVerificacao, removerPainelParceriaAntigo } from '../features/community.js';
-import { iniciarAgendadorRelogio, dispararAvisosLoopHorario, verificarEnviosPendentesAoLigar, removerAnuncioParceriaAntigo } from '../features/automation.js';
+import { configurarCanalVerificacao, configurarPainelTickets, removerPainelParceriaAntigo } from '../features/community.js';
+import { iniciarAgendadorRelogio, verificarEnviosPendentesAoLigar, removerAnuncioParceriaAntigo } from '../features/automation.js';
 import { registrarComandos } from '../commands/deploy.js';
 import { removerAnuncioFiveMAntigo } from '../features/fivemAnnouncements.js';
 import { iniciarApiAnunciosFiveM } from '../api/server.js';
 import { removeExpiredRemoteTranscripts, removeExpiredTranscripts } from '../services/transcripts.js';
+import { configurarPainelDashboard } from '../features/dashboard.js';
+import { startCommerceAutomations } from '../features/commerceAutomations.js';
+import { startFeedbackRecovery } from '../features/commerceFeedback.js';
+import { startMercadoPagoWebhookProcessor } from '../api/mercadoPagoWebhook.js';
+
+async function executarEtapa(nome, tarefa) {
+    try {
+        await tarefa();
+    } catch (error) {
+        console.error(`[inicialização:${nome}] Esta etapa falhou; as demais continuarão:`, error);
+    }
+}
+
 client.once('clientReady', async () => {
     iniciarApiAnunciosFiveM();
+    startCommerceAutomations();
+    startFeedbackRecovery();
+    startMercadoPagoWebhookProcessor();
     console.log(`🤖 Bot conectado com sucesso como: ${client.user.tag}`);
     try {
         const expired = await removeExpiredTranscripts();
@@ -30,13 +46,16 @@ client.once('clientReady', async () => {
     } catch (error) {
         console.error('Não foi possível registrar os comandos de barra:', error);
     }
-    iniciarVarreduraTicketsOrfaos();
-    await configurarCanalVerificacao();
-    await removerPainelParceriaAntigo();
-    await removerAnuncioFiveMAntigo();
-    await removerAnuncioParceriaAntigo();
-    iniciarAgendadorRelogio();
-    await dispararAvisosLoopHorario();
-    await verificarEnviosPendentesAoLigar();
+    await executarEtapa('varredura de tickets', iniciarVarreduraTicketsOrfaos);
+    await executarEtapa('painel de verificação', configurarCanalVerificacao);
+    await executarEtapa('painel de tickets', configurarPainelTickets);
+    await executarEtapa('painel antigo de parcerias', removerPainelParceriaAntigo);
+    await executarEtapa('anúncio antigo FiveM', removerAnuncioFiveMAntigo);
+    await executarEtapa('anúncio antigo de parcerias', removerAnuncioParceriaAntigo);
+    await executarEtapa('agendador', iniciarAgendadorRelogio);
+    await executarEtapa('envios pendentes', verificarEnviosPendentesAoLigar);
+    await executarEtapa('painel privado do bot', configurarPainelDashboard);
 });
 
+client.on('error', error => console.error('[discord] Erro no cliente Discord:', error));
+client.on('shardError', error => console.error('[discord] Falha na conexão do shard:', error));

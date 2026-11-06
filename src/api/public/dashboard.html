@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Painel do Bot</title>
+  <link rel="stylesheet" href="/painel/style.css">
+  <script type="module" src="/painel/app.js"></script>
+</head>
+<body>
+  <main id="login" class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark">STZ</div>
+      <p class="eyebrow">ADMINISTRAÇÃO PRIVADA</p>
+      <h1>Painel do bot</h1>
+      <p class="muted">Abra pelo botão <strong>Ver na web</strong> do painel privado do Discord para entrar automaticamente. Também pode usar sua chave de acesso.</p>
+      <form id="login-form">
+        <label for="password">Chave de acesso</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="primary wide" type="submit">Entrar</button>
+        <p id="login-error" class="error" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+
+  <div id="app" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark small">STZ</span><div><strong>Bot Control</strong><small>Community for FiveM</small></div></div>
+      <nav id="navigation" aria-label="Seções do painel">
+        <button data-page="overview" class="nav-item active">Visão geral</button>
+        <button data-page="services" class="nav-item">Serviços</button>
+        <button data-page="automations" class="nav-item">Automações</button>
+        <button data-page="channels" class="nav-item">Canais</button>
+        <button data-page="config" class="nav-item">Configuração</button>
+        <button data-page="store" class="nav-item">Loja</button>
+        <button data-page="payments" class="nav-item">Pagamentos</button>
+      </nav>
+      <div class="sidebar-foot"><span class="live-dot"></span><span id="connection-label">Conectando…</span></div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div><p class="eyebrow" id="page-eyebrow">BOT DISCORD</p><h1 id="page-title">Visão geral</h1><p class="muted" id="server-name">Carregando servidor…</p></div>
+        <div class="top-actions"><span id="last-updated" class="muted"></span><button id="refresh" class="secondary">Atualizar</button><button id="logout" class="ghost">Sair</button></div>
+      </header>
+      <div id="notice" class="notice" hidden></div>
+      <main id="content" class="content" aria-live="polite"></main>
+      <footer>Chaves e credenciais não são exibidas nos cartões de status. <span id="footer-port"></span></footer>
+    </section>
+  </div>
+
+  <dialog id="method-dialog">
+    <form id="method-form" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><p class="eyebrow">LOJA</p><h2 id="method-dialog-title">Novo método</h2></div><button type="button" id="close-dialog" class="icon-button" aria-label="Fechar">×</button></div>
+      <label for="method-type">Tipo</label>
+      <select id="method-type" name="type"><option value="pix_manual">Pix manual</option><option value="payment_link">Link de pagamento</option></select>
+      <label for="method-name">Nome de identificação</label><input id="method-name" name="name" maxlength="70" required>
+      <div id="pix-fields">
+        <label for="pix-key">Chave Pix</label><input id="pix-key" name="pixKey" maxlength="100" autocomplete="off" type="password">
+        <label for="pix-key-type">Tipo da chave Pix</label><select id="pix-key-type" name="pixKeyType"><option value="auto">Detectar automaticamente</option><option value="email">E-mail</option><option value="phone">Telefone</option><option value="cpf">CPF</option><option value="cnpj">CNPJ</option><option value="random">Aleatória</option></select>
+        <p class="detail">Para telefone, informe o DDD. O sistema converte números nacionais para +55; no Discord, digite o telefone já com +55.</p>
+        <label for="receiver-name">Nome do recebedor</label><input id="receiver-name" name="receiverName" maxlength="25">
+        <label for="receiver-city">Cidade do recebedor</label><input id="receiver-city" name="city" maxlength="15">
+      </div>
+      <div id="link-fields" hidden><label for="payment-url">Link HTTPS</label><input id="payment-url" name="url" type="url" maxlength="500"></div>
+      <label for="method-instructions">Instruções (opcional)</label><textarea id="method-instructions" name="instructions" maxlength="300" rows="3"></textarea>
+      <p id="method-error" class="error" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-dialog" class="secondary">Cancelar</button><button id="save-method" class="primary" type="submit">Salvar método</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="coupon-dialog">
+    <form id="coupon-form" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><p class="eyebrow">PROMOÇÃO</p><h2>Novo cupom</h2></div><button type="button" id="close-coupon" class="icon-button" aria-label="Fechar">×</button></div>
+      <label for="coupon-code">Código</label><input id="coupon-code" maxlength="24" pattern="[A-Za-z0-9_-]{3,24}" required>
+      <label for="coupon-percent">Desconto (%)</label><input id="coupon-percent" type="number" min="1" max="90" value="10" required>
+      <label for="coupon-uses">Usos máximos</label><input id="coupon-uses" type="number" min="1" max="100000" value="50" required>
+      <label for="coupon-hours">Validade em horas (opcional)</label><input id="coupon-hours" type="number" min="1" max="8760">
+      <p id="coupon-error" class="error" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-coupon" class="secondary">Cancelar</button><button id="save-coupon" class="primary" type="submit">Criar cupom</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="product-dialog">
+    <form id="product-form" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><p class="eyebrow">CATÁLOGO</p><h2>Novo produto</h2></div><button type="button" id="close-product" class="icon-button" aria-label="Fechar">×</button></div>
+      <div class="form-grid two"><div><label for="new-product-name">Nome</label><input id="new-product-name" maxlength="80" required></div><div><label for="new-product-value">Identificador interno</label><input id="new-product-value" maxlength="32" pattern="[a-z0-9][a-z0-9_-]{1,31}" placeholder="ex: vip-mensal" required></div></div>
+      <label for="new-product-description">Descrição</label><textarea id="new-product-description" maxlength="1000" rows="3" required></textarea>
+      <div class="form-grid three"><div><label for="new-product-role-name">Nome exibido do cargo</label><input id="new-product-role-name" maxlength="100" required></div><div><label for="new-product-role">Cargo do Discord</label><select id="new-product-role" required><option value="" disabled selected>Selecione o cargo a entregar</option></select></div><div><label for="new-product-days">Validade (dias)</label><input id="new-product-days" type="number" min="1" max="3650" value="30" required></div></div>
+      <div class="form-grid two"><div><label for="new-product-price">Preço atual (R$)</label><input id="new-product-price" type="number" min="0.01" max="999999.99" step="0.01" required></div><div><label for="new-product-original">Preço original (R$)</label><input id="new-product-original" type="number" min="0.01" max="999999.99" step="0.01" required></div></div>
+      <label for="new-product-image">Imagem/GIF HTTPS (opcional)</label><input id="new-product-image" type="url" maxlength="500" placeholder="https://…">
+      <p id="product-error" class="error" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-product" class="secondary">Cancelar</button><button id="save-product" class="primary" type="submit">Criar produto</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

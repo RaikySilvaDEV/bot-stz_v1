@@ -21,6 +21,6 @@ export function recordAudit({ actorId, action, subject, detail = '' }) {
 export function getAuditEntries(limit = 10) {
     const entries = readJsonData(AUDIT_FILE, []);
     if (!Array.isArray(entries)) return [];
-    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 10));
+    const safeLimit = Math.max(1, Math.min(MAX_AUDIT_ENTRIES, Number(limit) || 10));
     return entries.slice(-safeLimit).reverse();
 }

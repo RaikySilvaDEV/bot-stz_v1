@@ -3,7 +3,7 @@ import {
     StringSelectMenuBuilder, TextInputBuilder, TextInputStyle
 } from 'discord.js';
 import { client } from '../client.js';
-import { MEU_ID_USUARIO } from '../config/constants.js';
+import { isServerManager } from '../services/authorization.js';
 import { logAction } from '../services/audit.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import {
@@ -71,7 +71,7 @@ export async function removerAnuncioFiveM(id, actorId = 'sistema') {
 }
 
 function ehAdministrador(interaction) {
-    return interaction.user.id === MEU_ID_USUARIO || interaction.user.id === interaction.guild?.ownerId;
+    return isServerManager(interaction);
 }
 
 function montarPainel(anuncios, selecionadoId = null) {

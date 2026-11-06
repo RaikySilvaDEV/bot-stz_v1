@@ -14,7 +14,7 @@ client.on('guildMemberAdd', async (member) => {
         const embed = new EmbedBuilder()
             .setColor(0x00FFCC)
             .setTitle(`✨ • BEM-VINDO(A) À COMMUNITY FOR FIVEM!`)
-            .setDescription(`${saudacao} Olá <@${member.id}>, seja muito bem-vindo(a) ao nosso servidor!\n\n📋 **Próximo passo importante:**\nFaça a sua verificação aqui:\n👉 https://discord.com/channels/1528983705673273466/1547204424244658216`)
+            .setDescription(`${saudacao} Olá <@${member.id}>, seja muito bem-vindo(a) ao nosso servidor!\n\n📋 **Próximo passo importante:**\nFaça a sua verificação aqui:\n👉 <#${getSettings().channels.verification}>`)
             .setThumbnail(avatarUrl)
             .setFooter({ text: `Membro nº ${member.guild.memberCount}` })
             .setTimestamp();
@@ -36,6 +36,32 @@ export async function configurarCanalVerificacao() {
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('botao_verificar').setLabel('Verificar-se').setStyle(ButtonStyle.Success).setEmoji('✅'));
         if (!existingMessage) await channel.send({ embeds: [embed], components: [row] });
     } catch (error) { console.error('[verificação] Falha ao configurar painel:', error); }
+}
+
+export async function configurarPainelTickets() {
+    try {
+        const channelId = getSettings().channels.ticketPanel;
+        const channel = await client.channels.fetch(channelId).catch(() => null);
+        if (!channel?.isTextBased()) {
+            console.warn(`[tickets] Canal do painel não encontrado ou não é textual: ${channelId}`);
+            return;
+        }
+        const messages = await channel.messages.fetch({ limit: 25 });
+        const existing = messages.find(message => message.author.id === client.user.id &&
+            message.components.some(row => row.components.some(component => component.customId === 'abrir_ticket')));
+        const embed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle('🎫 Atendimento e suporte')
+            .setDescription('Precisa de ajuda? Clique no botão abaixo para abrir um atendimento privado com a equipe.')
+            .setFooter({ text: 'Um canal privado será criado para você.' });
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('abrir_ticket').setLabel('Abrir ticket').setStyle(ButtonStyle.Primary).setEmoji('🎫')
+        );
+        if (existing) await existing.edit({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
+        else await channel.send({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
+    } catch (error) {
+        console.error('[tickets] Falha ao criar ou atualizar o painel:', error);
+    }
 }
 
 export async function removerPainelParceriaAntigo() {

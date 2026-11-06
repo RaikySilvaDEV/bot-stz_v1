@@ -1,13 +1,25 @@
 import { ChannelType } from 'discord.js';
 import { ai, client } from '../client.js';
 import { GUILD_ID, CANAIS_IGNORADOS_SUPORTE, MEU_ID_USUARIO } from '../config/constants.js';
-import { getSaudacaoDinamica } from '../services/greetings.js';
-import { addNotifiedTicketId, getNotifiedTicketIds } from '../repositories/stateRepository.js';
+import { addNotifiedTicketId, getNotifiedTicketIds, removeNotifiedTicketId } from '../repositories/stateRepository.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { logAction } from '../services/audit.js';
 const ultimoAtendimentoPorCanal = new Map();
+let varreduraEmAndamento = false;
+
+client.on('channelDelete', channel => {
+    try {
+        removeNotifiedTicketId(channel.id);
+    } catch (error) {
+        console.error('[tickets] Não foi possível limpar o estado do ticket removido:', error);
+    }
+    ultimoAtendimentoPorCanal.delete(channel.id);
+});
+
 export function iniciarVarreduraTicketsOrfaos() {
     setInterval(async () => {
+        if (varreduraEmAndamento) return;
+        varreduraEmAndamento = true;
         try {
             const guild = client.guilds.cache.get(GUILD_ID);
             if (!guild) return;
@@ -29,13 +41,6 @@ export function iniciarVarreduraTicketsOrfaos() {
 
                     const msgsOrdenadas = Array.from(mensagens.values()).sort((a, b) => b.createdTimestamp - a.createdTimestamp);
                     const ultimaMsg = msgsOrdenadas[0];
-
-                    const botJaMandouInicio = msgsOrdenadas.some(m => m.author.id === client.user.id);
-                    if (!botJaMandouInicio && msgsOrdenadas.length <= 3) {
-                        const saudacao = getSaudacaoDinamica();
-                        await canalTicket.send(`${saudacao} Tudo bem? No que posso ajudar?`);
-                        continue;
-                    }
 
                     if (!ultimaMsg.author.bot && settings.automations.aiResponses) {
                         if (!ai) {
@@ -95,8 +100,8 @@ Responda com todas as informações necessárias. Se a dúvida ultrapassar o seu
                 } catch (errCanal) { console.error(`[tickets:${canalTicket.id}] Falha ao processar ticket:`, errCanal); }
             }
         } catch (errGlobal) { console.error('[tickets] Falha na varredura:', errGlobal); }
+        finally { varreduraEmAndamento = false; }
     }, 25 * 1000);
 }
 
 // 👋 Boas-vindas Personalizadas
-

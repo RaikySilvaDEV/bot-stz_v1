@@ -3,13 +3,13 @@ import {
     ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle
 } from 'discord.js';
 import { client } from '../client.js';
-import { MEU_ID_USUARIO } from '../config/constants.js';
+import { isServerManager } from '../services/authorization.js';
 import { addPartner, getPartners, removePartner, updatePartner } from '../repositories/partnershipRepository.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { logAction } from '../services/audit.js';
 
 function isOwner(interaction) {
-    return interaction.user.id === MEU_ID_USUARIO || interaction.user.id === interaction.guild?.ownerId;
+    return isServerManager(interaction);
 }
 
 function partnerEmbed(partner) {
@@ -55,8 +55,9 @@ function makePanel(selectedId = null, page = 0) {
         );
     }
     components.push(new ActionRowBuilder().addComponents(buttons));
+    const pageDescription = pageCount > 1 ? `\nPágina ${page + 1} de ${pageCount}.` : '';
     const content = partners.length
-        ? `**Gerenciamento de parcerias** — ${partners.length} cadastrada(s). As alterações serão publicadas em <#${getSettings().channels.partnerships}>.${pageCount > 1 ? `\nPágina ${page + 1} de ${pageCount}.` : ''}`}
+        ? `**Gerenciamento de parcerias** — ${partners.length} cadastrada(s). As alterações serão publicadas em <#${getSettings().channels.partnerships}>.${pageDescription}`
         : `Ainda não há parcerias cadastradas. Use **Cadastrar parceria** para adicionar a primeira. A divulgação será feita em <#${getSettings().channels.partnerships}>.`;
     if (pageCount > 1) {
         components.push(new ActionRowBuilder().addComponents(

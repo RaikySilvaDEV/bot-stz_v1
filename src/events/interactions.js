@@ -1,16 +1,19 @@
-﻿import {
-    ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType,
-    EmbedBuilder, MessageFlags, PermissionsBitField
+import {
+    ChannelType, MessageFlags, PermissionsBitField
 } from 'discord.js';
 import { client } from '../client.js';
 import { CARGO_VERIFICADO_ID, CARGO_STAFF_SUPORTE_ID } from '../config/constants.js';
-import { getSaudacaoDinamica } from '../services/greetings.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { logAction } from '../services/audit.js';
-import { rememberRemoteTranscript, saveTicketTranscript } from '../services/transcripts.js';
+import { archiveAndCloseTicket } from '../services/ticketClosure.js';
 import { tratarInteracaoAdministracao } from '../features/administration.js';
 import { tratarInteracaoParcerias } from '../features/partnerships.js';
 import { tratarInteracaoAnunciosFiveM } from '../features/fivemAnnouncements.js';
+import { tratarInteracaoPagamentos } from '../features/payments.js';
+import { tratarInteracaoDashboard } from '../features/dashboard.js';
+import { criarVitrineLoja, publicarSeletorProdutos, tratarInteracaoCompras } from '../features/commerce.js';
+import { tratarAdminLoja } from '../features/commerceAdmin.js';
+import { tratarInteracaoFeedback } from '../features/commerceFeedback.js';
 
 const ticketsEmCriacao = new Set();
 
@@ -19,6 +22,11 @@ client.on('interactionCreate', async interaction => {
         if (await tratarInteracaoAnunciosFiveM(interaction)) return;
         if (await tratarInteracaoAdministracao(interaction)) return;
         if (await tratarInteracaoParcerias(interaction)) return;
+        if (await tratarInteracaoPagamentos(interaction)) return;
+        if (await tratarInteracaoDashboard(interaction)) return;
+        if (await tratarInteracaoFeedback(interaction)) return;
+        if (await tratarAdminLoja(interaction)) return;
+        if (await tratarInteracaoCompras(interaction)) return;
         if (interaction.isChatInputCommand()) {
             if (interaction.commandName === 'ajuda') {
                 return interaction.reply({
@@ -29,7 +37,9 @@ client.on('interactionCreate', async interaction => {
                         '`/ping` — mostra a latência do bot.',
                         '`/teste` — verifica se o bot está respondendo.',
                         '`/vendas` — mostra os produtos disponíveis para compra.',
-                        '`/comprar` — abre o canal do produto que você quer comprar.',
+                        '`/comprar` — abre a loja com Pix Mercado Pago e entrega automática após confirmação.',
+                        '`/pagamentos` — gerencia os métodos de pagamento da loja.',
+                        '`/painel` — abre o painel privado de status e controle do bot.',
                         '`/parcerias` — gerencia parcerias (somente donos).',
                         '`/cadastrar-parceria` — abre o cadastro rápido de parceria (somente donos).',
                         '`/anuncios-fivem` — administra anúncios (somente donos).',
@@ -37,7 +47,7 @@ client.on('interactionCreate', async interaction => {
                         '`/status` e `/logs` — estado do bot e registro administrativo.',
                         '`/backup` — baixa uma cópia dos dados administrativos (somente donos).',
                         '',
-                        'Os painéis do servidor também oferecem verificação e abertura de tickets.'
+                        'Os painéis do servidor também oferecem verificação, abertura de tickets e carrinho de compras.'
                     ].join('\n')
                 });
             }
@@ -54,29 +64,7 @@ client.on('interactionCreate', async interaction => {
                 });
             }
             if (interaction.commandName === 'vendas') {
-                return interaction.reply({
-                    flags: MessageFlags.Ephemeral,
-                    content: [
-                        '**Produtos disponíveis**',
-                        `• **Premium:** <#1552131842960916521>`,
-                        `• **Cargo Booster:** <#1552131921801256961>`,
-                        `• **Booster Premium:** <#1552727902930346167>`,
-                        '',
-                        'Use `/comprar` e escolha um produto para abrir a sala correspondente.'
-                    ].join('\n')
-                });
-            }
-            if (interaction.commandName === 'comprar') {
-                const canais = {
-                    premium: ['Premium', '1552131842960916521'],
-                    cargo_booster: ['Cargo Booster', '1552131921801256961'],
-                    booster_premium: ['Booster Premium', '1552727902930346167']
-                };
-                const [nome, canalId] = canais[interaction.options.getString('produto')];
-                return interaction.reply({
-                    flags: MessageFlags.Ephemeral,
-                    content: `Para ver e comprar **${nome}**, acesse <#${canalId}>.`
-                });
+                return interaction.reply({ ...criarVitrineLoja(), flags: MessageFlags.Ephemeral });
             }
             return interaction.reply({ flags: MessageFlags.Ephemeral, content: 'Comando não reconhecido.' });
         }
@@ -104,7 +92,10 @@ client.on('interactionCreate', async interaction => {
             await guild.channels.fetch();
             const supportCategoryId = getSettings().channels.supportCategory;
             const duplicateTicket = guild.channels.cache.find(channel => channel.parentId === supportCategoryId && channel.type === ChannelType.GuildText && channel.topic === `ticket-owner:${interaction.user.id}`);
-            if (duplicateTicket) return interaction.editReply({ content: `Você já tem um atendimento aberto: ${duplicateTicket}` });
+            if (duplicateTicket) {
+                await publicarSeletorProdutos(duplicateTicket).catch(error => console.error(`[loja:${duplicateTicket.id}] Não foi possível publicar o carrinho:`, error));
+                return interaction.editReply({ content: `Você já tem um atendimento aberto: ${duplicateTicket}` });
+            }
             const cleanUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || interaction.user.id;
             const tipo = 'ticket';
             const channel = await guild.channels.create({
@@ -114,23 +105,18 @@ client.on('interactionCreate', async interaction => {
                 topic: `ticket-owner:${interaction.user.id}`,
                 permissionOverwrites: [
                     { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-                    { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-                    { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+                    { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.EmbedLinks, PermissionsBitField.Flags.AttachFiles] },
+                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
                     { id: CARGO_STAFF_SUPORTE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
                 ]
             });
-            const embed = new EmbedBuilder()
-                .setColor(0x00FFCC)
-                .setTitle('🎫 • ATENDIMENTO')
-                .setDescription(`Olá <@${interaction.user.id}>, envie sua solicitação aqui.\n\nEste atendimento pode usar IA para ajudar com respostas. Evite enviar senhas, tokens ou outros dados sensíveis.`)
-                .setTimestamp();
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId('fechar_ticket').setLabel('🔒 Fechar').setStyle(ButtonStyle.Danger)
-            );
-            await channel.send({ content: `<@${interaction.user.id}>`, embeds: [embed], components: [row] });
-            await channel.send(`${getSaudacaoDinamica()} Tudo bem? No que posso ajudar?`);
+            await publicarSeletorProdutos(channel).catch(error => console.error(`[loja:${channel.id}] Não foi possível publicar o carrinho:`, error));
             await logAction(guild, interaction.user.id, 'Ticket aberto', `Canal ${channel.name}`);
-            return interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
+            await interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
+            setTimeout(() => {
+                interaction.deleteReply().catch(() => {});
+            }, 5000).unref?.();
+            return;
             } finally {
                 ticketsEmCriacao.delete(interaction.user.id);
             }
@@ -145,23 +131,15 @@ client.on('interactionCreate', async interaction => {
             setTimeout(async () => {
                 const ticket = interaction.channel;
                 try {
-                    const transcriptPath = await saveTicketTranscript(ticket);
-                    await logAction(interaction.guild, interaction.user.id, 'Ticket fechado', `Canal ${ticket.name}; transcrição ${ticket.id}.txt`);
-                    const logChannelId = getSettings().channels.audit;
-                    if (logChannelId) {
-                        const logChannel = await interaction.guild.channels.fetch(logChannelId).catch(() => null);
-                        if (logChannel?.isTextBased()) {
-                            const transcriptMessage = await logChannel.send({ content: `📄 Transcrição do ticket **${ticket.name}**.`, files: [transcriptPath] }).catch(error => {
-                                console.error('[tickets] Não foi possível enviar a transcrição ao canal de logs:', error);
-                                return null;
-                            });
-                            if (transcriptMessage) rememberRemoteTranscript({ guildId: interaction.guild.id, channelId: logChannel.id, messageId: transcriptMessage.id });
-                        }
-                    }
+                    await archiveAndCloseTicket(
+                        interaction.guild, ticket, interaction.user.id, 'Ticket fechado pela equipe de suporte'
+                    );
                 } catch (error) {
-                    console.error('[tickets] Falha ao guardar a transcrição do ticket:', error);
-                } finally {
-                    await ticket.delete('Ticket fechado pela equipe de suporte').catch(error => console.error('[tickets] Não foi possível fechar o canal:', error));
+                    console.error('[tickets] Falha ao salvar a transcrição ou fechar o ticket:', error);
+                    await interaction.followUp({
+                        content: 'Não consegui salvar a transcrição ou fechar o ticket; o canal foi mantido aberto. Tente fechar novamente mais tarde.',
+                        flags: MessageFlags.Ephemeral
+                    }).catch(() => {});
                 }
             }, 5000);
         }
