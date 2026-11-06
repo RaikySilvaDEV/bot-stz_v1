@@ -10,6 +10,10 @@ import {
 } from '../repositories/stateRepository.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { getAutomationMessageIds, saveAutomationMessageId } from '../repositories/automationRepository.js';
+import {
+    getAnnouncementHoursCompleted, getWallpaperDateCompleted,
+    markAnnouncementHoursCompleted, markWallpaperDateCompleted
+} from '../repositories/automationScheduleRepository.js';
 
 const ultimasMensagensLoop = new Map(Object.entries(getAutomationMessageIds()));
 const ultimoAvisoAssetAusente = new Map();
@@ -32,7 +36,7 @@ export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveL
     const canal = await guild.channels.fetch(canalId).catch(() => null);
     if (!canal?.isTextBased()) {
         console.warn(`[avisos] Canal ${canalId} não encontrado ou não é textual.`);
-        return;
+        return false;
     }
 
     const idAnterior = ultimasMensagensLoop.get(chaveLoop);
@@ -42,8 +46,10 @@ export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveL
         const atualizada = mensagem ? await mensagem.edit(payload) : await canal.send(payload);
         ultimasMensagensLoop.set(chaveLoop, atualizada.id);
         saveAutomationMessageId(chaveLoop, atualizada.id);
+        return true;
     } catch (error) {
         console.error(`[avisos] Falha ao publicar no canal ${canalId}:`, error);
+        return false;
     }
 }
 
@@ -63,11 +69,11 @@ export function gerarPayloadsLoop() {
 
 export async function dispararAvisosLoopHorario() {
     const settings = getSettings();
-    if (!settings.automations.announcements) return;
+    if (!settings.automations.announcements) return false;
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
         console.error(`[avisos] Bot não está no servidor configurado (${GUILD_ID}).`);
-        return;
+        return false;
     }
     const payloads = gerarPayloadsLoop();
     const mensagens = [
@@ -77,30 +83,51 @@ export async function dispararAvisosLoopHorario() {
         [settings.channels.roleNews, payloads.payloadNovidadesCargos],
         [settings.channels.precisionInfo, payloads.payloadInfoPrecision]
     ];
-    await Promise.all(mensagens.map(([id, payload]) => enviarOuSubstituirMensagem(guild, id, payload, id)));
+    const results = await Promise.all(mensagens.map(([id, payload]) => enviarOuSubstituirMensagem(guild, id, payload, id)));
+    return results.every(Boolean);
+}
+
+export function getScheduleDateParts(date, timeZone) {
+    const values = new Intl.DateTimeFormat('en-US', {
+        timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]: part.value }), {});
+    return { dateKey: `${values.year}-${values.month}-${values.day}`, hour: Number(values.hour), minute: Number(values.minute) };
 }
 
 export async function dispararWallpaperDiario() {
     const settings = getSettings();
-    if (!settings.automations.wallpapers) return;
+    if (!settings.automations.wallpapers) return false;
+    const { dateKey } = getScheduleDateParts(new Date(), settings.timezone);
+    if (getWallpaperDateCompleted() === dateKey) return true;
     const guild = client.guilds.cache.get(GUILD_ID);
-    if (!guild) return console.error('[wallpapers] Bot não está no servidor configurado.');
+    if (!guild) { console.error('[wallpapers] Bot não está no servidor configurado.'); return false; }
     const estado = getWallpaperState();
     const diaAtual = estado.diaAtual;
     const arquivoPath = path.join(PATHS.wallpapers, `${diaAtual}.png`);
     if (!fs.existsSync(arquivoPath)) {
         console.warn(`[wallpapers] Arquivo ausente: ${arquivoPath}. O dia não foi avançado.`);
-        return;
+        return false;
     }
 
     const canal = await guild.channels.fetch(settings.channels.wallpapers).catch(() => null);
-    if (!canal?.isTextBased()) return console.error(`[wallpapers] Canal ${settings.channels.wallpapers} não encontrado.`);
+    if (!canal?.isTextBased()) { console.error(`[wallpapers] Canal ${settings.channels.wallpapers} não encontrado.`); return false; }
     try {
+        const messageContent = `🖼️ **Wallpaper do Dia • Dia ${diaAtual}/105**`;
+        const recent = await canal.messages.fetch({ limit: 25 }).catch(() => null);
+        const alreadyPosted = recent?.find(message => message.author.id === client.user.id && message.content === messageContent);
+        if (alreadyPosted) {
+            saveWallpaperState({ diaAtual: diaAtual >= 105 ? 1 : diaAtual + 1 });
+            markWallpaperDateCompleted(dateKey);
+            return true;
+        }
         const attachment = new AttachmentBuilder(arquivoPath, { name: `wallpaper-dia-${diaAtual}.png` });
-        await canal.send({ content: `🖼️ **Wallpaper do Dia • Dia ${diaAtual}/105**`, files: [attachment] });
+        await canal.send({ content: messageContent, files: [attachment] });
         saveWallpaperState({ diaAtual: diaAtual >= 105 ? 1 : diaAtual + 1 });
+        markWallpaperDateCompleted(dateKey);
+        return true;
     } catch (error) {
         console.error('[wallpapers] Falha ao enviar o wallpaper:', error);
+        return false;
     }
 }
 
@@ -161,28 +188,30 @@ export function iniciarAgendadorRelogio() {
     let ultimoAvisoAgendado = '';
     let ultimoWallpaper = '';
     let ultimaVerificacaoEstoque = '';
+    const tarefasEmAndamento = new Set();
     const executarAgendado = (nome, tarefa) => {
-        Promise.resolve().then(tarefa).catch(error => console.error(`[agendador:${nome}] Falha nesta execução; o agendador continuará:`, error));
+        if (tarefasEmAndamento.has(nome)) return;
+        tarefasEmAndamento.add(nome);
+        Promise.resolve().then(tarefa)
+            .catch(error => console.error(`[agendador:${nome}] Falha nesta execução; o agendador continuará:`, error))
+            .finally(() => tarefasEmAndamento.delete(nome));
     };
     setInterval(() => {
       try {
         const settings = getSettings();
-        const partes = new Intl.DateTimeFormat('en-US', {
-            timeZone: settings.timezone, year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-        }).formatToParts(new Date()).reduce((resultado, parte) => ({ ...resultado, [parte.type]: parte.value }), {});
-        const hora = Number(partes.hour);
-        const minuto = Number(partes.minute);
-        const dataHora = `${partes.year}-${partes.month}-${partes.day}T${partes.hour}:${partes.minute}`;
-        if (dataHora !== ultimoAvisoAgendado && minuto === 0 && settings.automations.announcements && settings.announcementHours.includes(hora)) {
+        const { dateKey, hour: hora, minute: minuto } = getScheduleDateParts(new Date(), settings.timezone);
+        const dataHora = `${dateKey}T${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
+        if (dataHora !== ultimoAvisoAgendado && minuto === 0 && settings.automations.announcements && settings.announcementHours.includes(hora) && !getAnnouncementHoursCompleted(dateKey).includes(hora)) {
             ultimoAvisoAgendado = dataHora;
-            executarAgendado('avisos', dispararAvisosLoopHorario);
+            executarAgendado('avisos', async () => {
+                if (await dispararAvisosLoopHorario()) markAnnouncementHoursCompleted(dateKey, [...getAnnouncementHoursCompleted(dateKey), hora]);
+            });
         }
-        if (dataHora !== ultimoWallpaper && minuto === 0 && hora === 12 && settings.automations.wallpapers) {
+        if (dataHora !== ultimoWallpaper && minuto === 0 && hora === 12 && settings.automations.wallpapers && getWallpaperDateCompleted() !== dateKey) {
             ultimoWallpaper = dataHora;
             executarAgendado('wallpapers', dispararWallpaperDiario);
         }
-        const stockKey = `${partes.year}-${partes.month}-${partes.day}T${partes.hour}:${String(Math.floor(minuto / 5) * 5).padStart(2, '0')}`;
+        const stockKey = `${dateKey}T${String(hora).padStart(2, '0')}:${String(Math.floor(minuto / 5) * 5).padStart(2, '0')}`;
         if (settings.automations.stock && minuto % 5 === 0 && stockKey !== ultimaVerificacaoEstoque) {
             ultimaVerificacaoEstoque = stockKey;
             executarAgendado('estoque', () => dispararTodosArmazensCincoHoras(false));
@@ -194,6 +223,15 @@ export function iniciarAgendadorRelogio() {
 }
 
 export async function verificarEnviosPendentesAoLigar() {
+    const settings = getSettings();
+    const { dateKey, hour, minute } = getScheduleDateParts(new Date(), settings.timezone);
+    if (settings.automations.announcements) {
+        const dueHours = settings.announcementHours.filter(scheduledHour => scheduledHour < hour || (scheduledHour === hour && minute > 0));
+        const completed = getAnnouncementHoursCompleted(dateKey);
+        const missing = dueHours.filter(scheduledHour => !completed.includes(scheduledHour));
+        if (missing.length && await dispararAvisosLoopHorario()) markAnnouncementHoursCompleted(dateKey, [...completed, ...missing]);
+    }
+    if (settings.automations.wallpapers && hour >= 12 && getWallpaperDateCompleted() !== dateKey) await dispararWallpaperDiario();
     const estado = getStockState();
     const limite = 5 * 60 * 60 * 1000;
     const agora = Date.now();

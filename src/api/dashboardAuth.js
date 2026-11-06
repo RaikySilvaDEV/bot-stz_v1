@@ -2,7 +2,8 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 const COOKIE_NAME = 'stz_dashboard_session';
 const SESSION_SECONDS = 8 * 60 * 60;
-const SECRET = process.env.DASHBOARD_PASSWORD || process.env.API_KEY || '';
+const configuredDashboardSecret = process.env.DASHBOARD_PASSWORD?.trim() || process.env.API_KEY?.trim() || '';
+const SECRET = /^(?:COLE_|SEU_|GERE_)/i.test(configuredDashboardSecret) ? '' : configuredDashboardSecret;
 const LOGIN_TICKET_TTL_MS = 10 * 60 * 1000;
 const loginTickets = new Map();
 

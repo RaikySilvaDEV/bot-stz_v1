@@ -1,72 +1,166 @@
-# Community for FiveM Bot
+# Bot STZ · Community for FiveM
 
-Bot Discord em Node.js com suporte automatizado, tickets, verificação, anúncios FiveM, parcerias e rotinas de conteúdo.
+Bot de Discord para a Community for FiveM, feito em Node.js e Discord.js. O projeto reúne suporte, automações da comunidade, loja digital, pagamentos via Mercado Pago, API de anúncios e painel administrativo web.
 
-## Preparar e iniciar
+## Vitrine real do projeto
 
-1. Instale Node.js 20 ou superior.
-2. Copie `.env.example` para `.env` e preencha `DISCORD_TOKEN`, `GEMINI_API_KEY` e `API_KEY`.
-3. No Discord Developer Portal, habilite **Server Members Intent** e **Message Content Intent**. Convide o bot com as permissões necessárias para gerenciar canais e cargos, ler histórico, enviar mensagens, anexar arquivos e usar comandos.
-4. Execute `npm install` e depois `npm start`. Esse comando usa um supervisor leve que reinicia o processo do bot após uma saída inesperada; `Ctrl+C` encerra o bot e o supervisor. `npm run start:direct` inicia sem reinício automático.
+Os cards abaixo usam as imagens presentes no repositório:
 
-`GEMINI_API_KEY` pode ficar em branco; os tickets continuam abrindo e a equipe recebe aviso quando a resposta automática não estiver disponível. `API_KEY` pode ficar em branco para desativar a API local do Postman. O fuso padrão é `America/Sao_Paulo` e pode ser alterado por `BOT_TIME_ZONE`.
-
-O painel web fica na rota `/painel` da API local, normalmente em `http://127.0.0.1:3001/painel`. O botão **Ver na web** no canal privado do painel inclui um token de uso único, válido por 10 minutos; atualize o painel no Discord para gerar outro. Também é possível entrar manualmente com `DASHBOARD_PASSWORD` ou, se vazio, `API_KEY`. O servidor escuta somente no próprio computador. Para acesso pela internet, publique atrás de um proxy HTTPS e configure `DASHBOARD_PUBLIC_URL` com o endereço público.
-
-O usuário desenvolvedor é definido por `BOT_DEVELOPER_IDS`, com IDs separados por vírgula. Os comandos de administração ficam visíveis no servidor, mas só o dono do servidor e esses IDs podem executá-los.
-
-## Comandos
-
-| Comando | Acesso | O que faz |
+| Premium | Booster | Banner da loja |
 |---|---|---|
-| `/ajuda`, `/ping`, `/teste` | Membros | Ajuda e diagnóstico rápido |
-| `/vendas`, `/comprar` | Membros | Vitrine; `/comprar` gera Pix do Mercado Pago com confirmação e entrega automáticas |
-| `/pagamentos` | Dono do servidor ou desenvolvedor configurado | Gerencia métodos legados e preços; também cria/atualiza o canal público de status |
-| `/loja status` | Dono do servidor ou desenvolvedor configurado | Mostra automações, cargos, estoque e estado de configuração |
-| `/loja publicar` | Dono do servidor ou desenvolvedor configurado | Publica/atualiza os cards com imagens e botões no canal de compras configurado; cria `#🛍️・loja` se o canal não existir |
-| `/loja automacao` | Dono do servidor ou desenvolvedor configurado | Configura cada automação comercial separadamente; Mercado Pago exige credenciais e HTTPS |
-| `/loja cargo`, `/loja estoque`, `/loja imagem`, `/loja instrucoes`, `/loja link-entrega` | Dono do servidor ou desenvolvedor configurado | Configura cargo, estoque, card e conteúdo entregue ao cliente |
-| `/loja cupom-criar`, `/loja cupom-remover` | Dono do servidor ou desenvolvedor configurado | Gerencia códigos de desconto (aplicação desligada até ativar a automação) |
-| `/loja relatorio` | Dono do servidor ou desenvolvedor configurado | Mostra pedidos, pagamentos pendentes e faturamento registrado |
-| `/loja feedbacks` | Dono do servidor ou desenvolvedor configurado | Consulta avaliações recentes e média dos compradores |
-| `/pedido aprovar` | Dono do servidor ou desenvolvedor configurado | Confirma manualmente um pedido e tenta a entrega configurada |
-| `/pedido entregar` | Dono do servidor ou desenvolvedor configurado | Tenta novamente a entrega automática de um pedido já pago |
-| `/painel` | Dono do servidor ou desenvolvedor configurado | Cria ou atualiza o painel privado de saúde do bot, com páginas de serviços, automações, canais e pagamentos |
-| `/parcerias` | Dono do servidor ou ID de proprietário configurado | Cadastrar, editar, listar e remover parcerias |
-| `/cadastrar-parceria` | Dono do servidor ou ID de proprietário configurado | Abre o cadastro rápido |
-| `/anuncios-fivem` | Dono do servidor ou ID de proprietário configurado | Criar, editar e remover anúncios FiveM |
-| `/configurar ver` | Dono do servidor ou ID de proprietário configurado | Exibe canais, automações e horários |
-| `/configurar canal` | Dono do servidor ou ID de proprietário configurado | Define o destino de cada recurso |
-| `/configurar automacao` | Dono do servidor ou ID de proprietário configurado | Liga ou pausa avisos, wallpapers, armazéns e IA |
-| `/configurar mencoes` | Dono do servidor ou ID de proprietário configurado | Controla as menções automáticas a `@everyone` |
-| `/configurar horarios` | Dono do servidor ou ID de proprietário configurado | Define os horários dos avisos, por exemplo `9,15,21` |
-| `/configurar fuso` | Dono do servidor ou ID de proprietário configurado | Define o fuso IANA dos agendamentos |
-| `/configurar auditoria` | Dono do servidor ou ID de proprietário configurado | Escolhe ou desativa o canal privado de logs |
-| `/status`, `/logs`, `/backup` | Dono do servidor ou ID de proprietário configurado | Saúde do bot, ações administrativas e exportação dos dados persistentes |
+| ![Produto Premium](assets/store/premium.jpg) | ![Produto Booster](assets/store/booster.jpg) | ![Banner da loja](assets/store/access-roles-banner.png) |
 
-Os canais começam com os IDs padrão de `src/config/constants.js`. As alterações feitas com `/configurar` ficam em `data/bot-config.json` e sobrevivem a reinicializações.
+Os três produtos iniciais são Cargo Premium (R$ 12,00), Cargo Booster (R$ 7,00) e Booster + Premium (R$ 14,00). Os preços e conteúdos exibidos podem ser alterados no catálogo; confira o painel antes de publicar a vitrine.
 
-## Dados e privacidade
+## Requisitos
 
-- Configurações, parcerias, anúncios FiveM, logs e estados das automações são gravados em arquivos JSON na pasta `data/`. Essa pasta é ignorada pelo Git; use `/backup` para baixar uma cópia dos dados persistentes.
-- Os métodos de pagamento ficam em `data/metodos-pagamento.json`. A chave Pix é armazenada localmente e não aparece no painel nem no canal público; o backup administrativo também omite a chave.
-- As rotinas da loja ficam em `data/comercio-config.json`. As novas automações de Mercado Pago, cargos, expiração, lembretes, carrinhos abandonados, cupons, estoque, entrega, relatórios e avaliações começam desligadas. Configure os cargos com `/loja cargo`, a validade é de 5 dias para os produtos atuais, e confirme manualmente com `/pedido aprovar` enquanto o pagamento automático estiver desligado.
-- A loja aceita somente Pix pelo Mercado Pago: ao escolher um produto em `/comprar`, o bot pede o e-mail do pagador em um formulário privado, cria a cobrança Pix pelo SDK oficial `mercadopago`, exibe QR Code e Pix Copia e Cola e aguarda confirmação assinada do webhook antes de entregar o cargo. Notificações entram numa fila persistente, são respondidas rapidamente e podem ser processadas novamente após falha ou reinício. O endpoint é `/api/webhooks/mercado-pago`. Cada produto precisa ter preço e cargo de entrega configurados, e as automações de Mercado Pago e entrega automática precisam estar ativas.
-- Para validar um pagamento Pix de ponta a ponta, a equipe pode usar `/pagamentos teste`. O bot pede o e-mail do pagador em um formulário privado, cria uma cobrança real de R$ 0,10, publica o QR Code e o Pix Copia e Cola na resposta privada e só entrega o cargo `Pagamento Teste` depois da confirmação assinada. Enquanto o processo do bot estiver ativo e dentro da validade do token de interação do Discord, a resposta privada é atualizada para mostrar a confirmação e o cargo atribuído. Esse teste não libera produtos da loja; o cargo é criado automaticamente e não tem permissões. Nas compras normais, a resposta privada do Pix também é atualizada após a confirmação e entrega do cargo. O supervisor atualiza a URL do webhook quando o endereço do túnel Cloudflare muda.
-- Após a compra, a avaliação é publicada no canal configurado como **Avaliações de clientes** (por padrão `⭐avaliações-dos-clientes`) e o ticket associado é encerrado automaticamente após salvar a transcrição. Avaliações salvas mas ainda não publicadas são retomadas quando o bot inicia.
-- Para configurar: crie uma aplicação no Developer Dashboard do Mercado Pago; use primeiro as credenciais da aba **Teste**; configure o evento de pagamentos no webhook da aplicação e copie a assinatura secreta; abra `/painel` → **Pagamentos** → **Mercado Pago** e informe Access Token, assinatura secreta e URL HTTPS pública terminada em `/api/webhooks/mercado-pago`. A tela grava as credenciais no `.env` local sem exibi-las. Depois, confira o estado do Mercado Pago e ative a automação explicitamente em **Automações**. A URL pública precisa encaminhar para a porta local da API do bot e permanecer acessível para notificações.
-- Os tickets podem usar Gemini para responder. O painel informa os membros e recomenda que não enviem senhas, tokens ou outros dados sensíveis. A IA pode ser pausada com `/configurar automacao`.
-- Ao abrir um ticket, o canal mostra somente a lista suspensa de produtos e o botão de fechar; os cards e detalhes ficam fora do ticket. Selecionar um produto abre as etapas privadas de pagamento.
-- Ao fechar um ticket, o bot guarda uma transcrição local por até 90 dias. Se um canal de auditoria for configurado, também envia a transcrição para esse canal; mantenha-o privado. O comando `/backup` inclui configurações comerciais, preços, pedidos e avaliações, mas remove a chave Pix e não inclui transcrições.
-- A API de anúncios FiveM escuta somente em `127.0.0.1`, exige `Authorization: Bearer <API_KEY>` e pode ser desativada omitindo `API_KEY`. As rotas existentes estão documentadas em [API-POSTMAN.md](API-POSTMAN.md).
-- Nunca publique `.env`, tokens ou chaves. Se uma credencial for exposta, revogue-a no provedor e substitua-a localmente.
+- Node.js 20 ou superior.
+- Um aplicativo de bot no Discord Developer Portal, convidado para o servidor com permissões de mensagens, canais, cargos, membros e comandos de aplicação necessários às funções ativadas.
+- `cloudflared` no `PATH` se for usar `npm start` com túnel Cloudflare automático.
+- Uma chave Gemini para respostas automáticas dos tickets e para a Assistente interna. Sem ela, o restante do bot pode iniciar, mas esses recursos de IA ficam indisponíveis.
 
-## Automação
+## Instalação
 
-Os avisos agendados mantêm os horários já configurados por padrão (05:00, 12:00 e 18:00). Wallpapers continuam às 12:00; o armazém consulta o intervalo de cinco horas e publica quando há arquivos para o item seguinte. Horários usam o fuso escolhido nas configurações. As rotinas podem ser pausadas sem remover os respectivos recursos.
+```powershell
+npm install
+Copy-Item .env.example .env
+```
 
-### Painel web de configuração
+Edite `.env` localmente e configure pelo menos `DISCORD_TOKEN`, `API_KEY` e uma senha forte para `DASHBOARD_PASSWORD`. Nunca envie esse arquivo pelo chat nem o adicione ao Git. `GEMINI_API_KEY` é opcional. O `.env` já está no `.gitignore`.
 
-Em `/painel`, a área **Configuração** permite editar os canais usados pelo bot, fuso horário, horários dos avisos e permissão para menções `@everyone`. A área **Loja** permite editar nomes, descrições, cargos, validade, preços, imagens, estoque e instruções de entrega; gerenciar cupons e acompanhar pedidos e avaliações. **Pagamentos** administra métodos Pix e links sem revelar as chaves salvas e configura credenciais e webhook do Mercado Pago, mantendo os segredos no `.env` local. O painel usa a mesma sessão autenticada e as opções de automação só mudam quando alguém as ativa explicitamente.
+No Discord Developer Portal, habilite **Server Members Intent** e **Message Content Intent** se o bot usar os respectivos eventos e comandos. Depois confira a hierarquia: o cargo do bot precisa ficar acima dos cargos que ele entrega.
 
-Para permitir que uma equipe use comandos administrativos, configure `BOT_ADMIN_ROLE_IDS` com os IDs dos cargos autorizados, separados por vírgula, e reinicie o bot. Os membros desses cargos passam a ver o canal privado do painel e podem usar `/painel`; o comando responde com um link web pessoal, de uso único. Para usar na mesma rede local, configure `API_HOST=0.0.0.0` e `DASHBOARD_PUBLIC_URL` com o IP local do computador. Libere a porta apenas no perfil de rede privada e para a rede local. Não encaminhe a porta diretamente da internet: o painel precisa de HTTPS público por proxy/túnel para acesso externo seguro.
+## Iniciar e parar
+
+```powershell
+npm start
+```
+
+`npm start` inicia o supervisor do projeto: tenta abrir o túnel Cloudflare Quick Tunnel e inicia o bot; reinicia os processos após saídas inesperadas. O URL `trycloudflare.com` é temporário e pode mudar. `Ctrl+C` encerra os processos iniciados pelo supervisor. Sem túnel, execute `npm run start:direct` para iniciar somente o bot e a API local.
+
+A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel e o bot precisam apontar para a mesma porta. O painel local fica em `http://127.0.0.1:3001/painel`. Para acesso externo, use HTTPS e defina `DASHBOARD_PUBLIC_URL` com a URL pública completa do painel. Quick Tunnels não garantem um endereço fixo.
+
+## Painel web
+
+O painel (`/painel`) mostra estado do bot, automações, canais, loja, pagamentos e pedidos. Ele também permite administrar produtos, preços, imagens, cargos de entrega, estoque, cupons e configurações disponíveis na interface. O acesso pode usar `DASHBOARD_PASSWORD`; se estiver vazia, a sessão do painel usa `API_KEY`. A rota web de autenticação usa cookie `HttpOnly` e as operações de alteração validam origem.
+
+O botão **Abrir painel web** no painel administrativo do Discord cria um acesso de uso único com validade limitada. A interface usa ícones Lucide distribuídos localmente (`src/api/public/icons/`), sem depender de CDN, e oferece tema escuro e navegação adaptável.
+
+A Assistente do painel é consultiva: responde sobre o estado resumido do projeto, mas não altera configurações. Quando configurada, a pergunta é enviada ao Gemini. Não inclua tokens, senhas, chaves Pix ou dados de clientes nas perguntas.
+
+## Recursos do bot
+
+- Verificação e boas-vindas de membros.
+- Tickets, transcrições e encaminhamento para atendimento humano; Gemini é opcional.
+- Parcerias e anúncios FiveM, com gerenciamento no Discord e no painel.
+- API REST protegida para criar, listar, editar e remover anúncios FiveM. Exemplos: [API-POSTMAN.md](API-POSTMAN.md).
+- Wallpapers, avisos programados, saudações e publicações dos armazéns CTZ e CTZ Boosters.
+- Loja de cargos, carrinho, cupons, avaliações, confirmação Mercado Pago, entrega configurável e relatórios.
+- Registros de auditoria e dados JSON locais.
+
+### Comandos Slash
+
+| Comando | Para que serve |
+|---|---|
+| `/ajuda` | Lista os comandos e recursos. |
+| `/ping` | Mostra latência e estado da conexão. |
+| `/teste` | Verifica a resposta do bot no servidor. |
+| `/vendas` | Publica ou atualiza a vitrine de produtos. |
+| `/comprar` | Abre o fluxo de carrinho e compra. |
+| `/pagamentos` | Abre o painel interativo de métodos e preços. |
+| `/pagamentos teste` | Cria uma cobrança Pix **real** de R$ 0,10 e, após pagamento confirmado, entrega o cargo de teste. Não use como simulação gratuita. |
+| `/loja status` | Consulta catálogo, automações e estoque. |
+| `/loja publicar` | Publica/atualiza a vitrine. |
+| `/loja automacao` | Liga ou pausa uma automação comercial. |
+| `/loja cargo` | Associa um cargo Discord ao produto. |
+| `/loja instrucoes`, `/loja imagem`, `/loja link-entrega`, `/loja estoque` | Configura entrega, mídia e disponibilidade de produto. |
+| `/loja cupom-criar`, `/loja cupom-remover` | Administra cupons. A aplicação de desconto depende da automação correspondente estar ativa. |
+| `/loja relatorio`, `/loja feedbacks` | Consulta vendas e avaliações. |
+| `/pedido aprovar` | Registra manualmente um pedido como pago e tenta entregar o produto. Use só após confirmar o pagamento por fonte confiável. |
+| `/pedido entregar` | Tenta novamente a entrega de um pedido já pago. |
+| `/painel` | Cria/atualiza o painel administrativo privado no Discord. |
+| `/parcerias`, `/cadastrar-parceria` | Lista e administra parcerias. |
+| `/anuncios-fivem` | Administra os anúncios do canal FiveM. |
+| `/status` | Mostra o estado do bot e das integrações. |
+| `/logs` | Consulta ações administrativas recentes. |
+| `/backup` | Baixa um snapshot JSON administrativo, sem tokens nem transcrições de tickets. |
+| `/configurar ver` | Mostra canais e automações configurados. |
+| `/configurar canal`, `/configurar automacao`, `/configurar mencoes`, `/configurar horarios`, `/configurar fuso`, `/configurar auditoria` | Administra canais, agendamentos e logs. |
+
+Os comandos administrativos têm checagens de autorização próprias: alguns aceitam o dono do servidor, desenvolvedores configurados ou cargos administrativos; outros são restritos ao dono. Configure `BOT_DEVELOPER_IDS` e `BOT_ADMIN_ROLE_IDS` e confira a resposta de acesso de cada comando. A lista de produtos nas opções do Discord é formada pelos produtos ativos quando os comandos Slash são registrados.
+
+As automações comerciais podem ser ativadas separadamente. Confirme cada status no painel; existir código para uma automação não significa que ela esteja ativa nem que os canais/cargos estejam configurados.
+
+## Mercado Pago
+
+A integração de compra usa Mercado Pago Pix e confirma os pedidos consultando a API a partir de webhooks assinados. O QR Code/copia e cola é gerado com o valor do pedido. Para ativar, configure no `.env`:
+
+```dotenv
+MERCADO_PAGO_ACCESS_TOKEN=
+MERCADO_PAGO_WEBHOOK_SECRET=
+MERCADO_PAGO_WEBHOOK_URL=https://SEU_HOST/api/webhooks/mercado-pago
+```
+
+O endereço de webhook precisa ser público, HTTPS e terminado em `/api/webhooks/mercado-pago`. Ative a automação Mercado Pago no painel e teste com as credenciais e cenários próprios do Mercado Pago antes de vender. O painel não deve ser usado como substituto da confirmação assinada do provedor; comprovantes enviados por compradores não confirmam pagamentos.
+
+### Repasse ao sócio
+
+Payouts para uma chave Pix é um fluxo financeiro distinto do checkout. O valor deverá ser calculado por uma regra explícita sobre pedidos pagos; cada repasse requer histórico persistente, chave idempotente, autorização administrativa e consulta do estado até a confirmação final. O Payouts do Mercado Pago pode exigir elegibilidade da conta, saldo disponível e, em produção, cadastro da chave pública de assinatura específica do produto. Nunca use o token de checkout ou a Public Key do painel como chave de assinatura de Payouts. A chave Pix do destinatário é dado sensível: configure-a somente no painel protegido, nunca em issue, commit ou chat.
+
+> A existência da integração de checkout não habilita nem prova que Payouts esteja liberado na sua conta. Faça testes de Payouts separados e mantenha transferências reais desativadas até validar conta, assinatura, saldo, webhook e reconciliação.
+
+O repasse ao sócio usa a porcentagem configurada sobre cada pedido confirmado como pago, antes das tarifas do provedor, com arredondamento para centavos por pedido. A automação vem desligada; a equipe precisa criar um repasse no painel e confirmar o envio explicitamente. O modo de teste é o padrão e limita o valor por transferência; credencial e elegibilidade de Payouts são independentes das credenciais de Checkout. A URL pública de notificação deve permanecer estável e apontar para `/api/webhooks/mercado-pago-payouts`.
+
+## Configuração
+
+| Variável | Uso |
+|---|---|
+| `DISCORD_TOKEN` | Token privado do bot. |
+| `GEMINI_API_KEY` | IA dos tickets e Assistente do painel (opcional). |
+| `API_KEY` | Bearer da API de anúncios e fallback de senha do painel. |
+| `DASHBOARD_PASSWORD` | Senha dedicada ao painel (recomendado). |
+| `API_HOST`, `API_PORT` | Endereço local e porta HTTP. |
+| `DASHBOARD_PUBLIC_URL` | URL pública HTTPS de `/painel`, se houver. |
+| `BOT_TIME_ZONE` | Fuso IANA, por padrão `America/Sao_Paulo`. |
+| `BOT_DEVELOPER_IDS` | IDs de desenvolvedor adicionais separados por vírgulas. |
+| `BOT_ADMIN_ROLE_IDS` | IDs de cargos que podem usar recursos administrativos. |
+| `MERCADO_PAGO_ACCESS_TOKEN` | Access Token de servidor do Mercado Pago; nunca exponha no navegador. |
+| `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo usado para verificar a assinatura de webhooks. |
+| `MERCADO_PAGO_WEBHOOK_URL` | URL pública HTTPS configurada para notificações de pagamento. |
+
+Veja [`.env.example`](.env.example) para os nomes e valores padrão, sem credenciais reais.
+
+## Dados e recuperação
+
+O estado persistente fica em `data/`; arquivos JSON são atualizados por gravação temporária e renomeação atômica. Arquivos de estado e logs locais são ignorados pelo Git. Faça cópias de segurança da pasta `data/`, assets próprios, `ModArmazem/`, `Wallpapers/` e do `.env` em armazenamento seguro. Não armazene backups do `.env` dentro do repositório.
+
+O armazenamento JSON é adequado para uma única instância do bot. Não execute duas instâncias apontando para a mesma pasta de dados; não há bloqueio distribuído para múltiplos processos.
+
+## Verificações de desenvolvimento
+
+```powershell
+npm run check
+npm test
+```
+
+Os testes automatizados devem usar mocks e não publicar mensagens no Discord, cobrar clientes ou executar Payouts reais. Para validar a integração financeira, faça um roteiro manual com credenciais de teste e fixtures oficiais, sem usar uma chave ou conta de destinatário real.
+
+## Estrutura
+
+```text
+src/
+  api/          API HTTP, autenticação, webhook MP e painel web
+  commands/     Definições e registro dos comandos Slash
+  config/       IDs, produtos e validação do ambiente
+  data/         Persistência JSON atômica
+  events/       Eventos Discord
+  features/     Comunidade, tickets, loja, pagamentos e automações
+  process/      Supervisor do bot e do túnel
+  repositories/ Acesso aos dados persistidos
+  services/     Integrações e regras reutilizáveis
+assets/store/   Imagens locais dos produtos
+```
+
+## Licenças e atribuições
+
+Os ícones locais são do [Lucide](https://lucide.dev/), distribuídos sob licença ISC. As imagens comerciais e os arquivos de produto pertencem aos respectivos autores/proprietários.

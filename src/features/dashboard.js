@@ -16,6 +16,7 @@ import { issueDashboardLoginTicket } from '../api/dashboardAuth.js';
 import { isServerManager } from '../services/authorization.js';
 import { COMMERCE_AUTOMATION_LABELS, getCommerceConfig, getCommerceProducts, setCommerceAutomation } from '../repositories/commerceRepository.js';
 import { mercadoPagoConfigReady } from '../services/mercadoPago.js';
+import { getPartnerPayoutDashboard } from '../services/partnerPayouts.js';
 
 const PAGES = [
     ['geral', 'Visão geral'], ['automacoes', 'Automações'],
@@ -61,6 +62,7 @@ function getAutomationHealth(status) {
         aiResponses: { ready: Boolean(ai) && status.channelReady('supportCategory'), detail: !ai ? 'GEMINI_API_KEY ausente.' : status.channelReady('supportCategory') ? 'Chave Gemini e categoria de suporte configuradas.' : 'Categoria de suporte ausente.' }
     };
     const commerce = status.commerceConfig;
+    const partnerPayoutSettings = getPartnerPayoutDashboard().settings;
     const products = getCommerceProducts({ includeInactive: false });
     const allRolesReady = products.length > 0 && products.every(product => Boolean(commerce.roles[product.value]));
     const hasDelivery = products.some(product => Boolean(commerce.deliveryMessages[product.value] || commerce.deliveryLinks[product.value]));
@@ -71,7 +73,10 @@ function getAutomationHealth(status) {
             : key === 'coupons' ? commerce.coupons.length > 0
             : key === 'digitalDelivery' ? hasDelivery
             : key === 'salesReports' ? status.channelReady('audit') : true;
-        health[storeKey] = { ready, detail: ready ? 'Configuração pronta.' : key === 'mercadoPago' ? 'Configure as credenciais e o webhook HTTPS.' : key === 'automaticDelivery' || key === 'roleExpiration' ? 'Vincule os cargos dos produtos com /loja cargo.' : key === 'coupons' ? 'Cadastre pelo menos um cupom.' : key === 'digitalDelivery' ? 'Configure instruções ou link de entrega.' : 'Canal de auditoria ausente.' };
+        const payoutReady = key === 'partnerPayouts'
+            ? partnerPayoutSettings.recipientConfigured && partnerPayoutSettings.encryptionReady && partnerPayoutSettings.accessTokenReady && partnerPayoutSettings.webhookReady && (partnerPayoutSettings.testMode || partnerPayoutSettings.privateSigningKeyReady)
+            : ready;
+        health[storeKey] = { ready: payoutReady, detail: payoutReady ? 'Configuração pronta.' : key === 'partnerPayouts' ? 'Configure o percentual, a chave Pix, a credencial de Payouts e o webhook; produção exige assinatura registrada.' : ready ? 'Configuração pronta.' : key === 'mercadoPago' ? 'Configure as credenciais e o webhook HTTPS.' : key === 'automaticDelivery' || key === 'roleExpiration' ? 'Vincule os cargos dos produtos com /loja cargo.' : key === 'coupons' ? 'Cadastre pelo menos um cupom.' : key === 'digitalDelivery' ? 'Configure instruções ou link de entrega.' : 'Canal de auditoria ausente.' };
     }
     return health;
 }

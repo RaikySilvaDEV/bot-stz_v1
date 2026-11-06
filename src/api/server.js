@@ -8,7 +8,8 @@ import {
 
 const API_PORT = Number.parseInt(process.env.API_PORT ?? '3001', 10);
 const API_HOST = process.env.API_HOST?.trim() || '127.0.0.1';
-const API_KEY = process.env.API_KEY ?? '';
+const configuredApiKey = process.env.API_KEY?.trim() ?? '';
+const API_KEY = /^(?:COLE_|SEU_|GERE_)/i.test(configuredApiKey) ? '' : configuredApiKey;
 const MAX_BODY_BYTES = 10 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX_REQUESTS = 120;

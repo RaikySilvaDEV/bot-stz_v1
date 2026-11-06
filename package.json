@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/process/supervisor.js",
-    "start:direct": "node index.js"
+    "start:direct": "node index.js",
+    "check": "node scripts/check-syntax.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@google/genai": "^2.32.0",
@@ -13,5 +15,8 @@
     "dotenv": "^16.4.5",
     "mercadopago": "^3.6.1",
     "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

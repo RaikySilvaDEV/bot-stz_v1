@@ -11,8 +11,9 @@ export async function logAction(guild, actorId, action, subject) {
     if (!channelId || !guild) return;
     const channel = await guild.channels.fetch(channelId).catch(() => null);
     if (channel?.isTextBased()) {
+        const actor = /^\d{17,20}$/.test(String(actorId)) ? `<@${actorId}>` : String(actorId || 'sistema');
         await channel.send({
-            content: `🧾 **${action}** — <@${actorId}> — ${subject}`,
+            content: `🧾 **${action}** — ${actor} — ${subject}`,
             allowedMentions: { users: [] }
         }).catch(error => console.warn('[logs] Não foi possível enviar o registro:', error));
     }
