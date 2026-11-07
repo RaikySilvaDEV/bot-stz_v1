@@ -125,7 +125,8 @@ export function gerarPayloadsLoop() {
             ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(priceCents / 100)
             : 'preço em configuração';
         const access = product.roleId ? `<@&${product.roleId}>` : `cargo **${product.roleName || 'não configurado'}** (equipe: configure o cargo)`;
-        return `• **${product.name}** — ${price}\n  🎟️ Acesso: ${access} · ${product.durationDays} dias`;
+        const description = String(product.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
+        return `• **${product.name}** — ${price}\n  ${description}\n  🎟️ Cargo: ${access} · ${product.durationDays} dias`;
     }).join('\n');
     const productList = productLines || 'No momento, não há produtos ativos na loja.';
     return {
