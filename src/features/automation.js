@@ -124,7 +124,8 @@ export function gerarPayloadsLoop() {
         const price = Number.isSafeInteger(priceCents)
             ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(priceCents / 100)
             : 'preço em configuração';
-        const access = product.roleId ? `<@&${product.roleId}>` : `cargo **${product.roleName || 'não configurado'}** (equipe: configure o cargo)`;
+        const roleIds = product.roleIds?.length ? product.roleIds : [product.roleId].filter(Boolean);
+        const access = roleIds.length ? roleIds.map(roleId => `<@&${roleId}>`).join(' + ') : `cargo **${product.roleName || 'não configurado'}** (equipe: configure o cargo)`;
         return `• **${product.name}** — ${price}\n  🎟️ Acesso: ${access} · ${product.durationDays} dias`;
     }).join('\n');
     const productList = productLines || 'No momento, não há produtos ativos na loja.';

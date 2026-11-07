@@ -6,6 +6,7 @@ const AUTOMATIONS = ['mercadoPago', 'automaticDelivery', 'roleExpiration', 'paym
 const EMPTY = {
     automations: Object.fromEntries(AUTOMATIONS.map(key => [key, false])),
     roles: Object.fromEntries(PRODUCTS.map(product => [product.value, null])),
+    roleIds: Object.fromEntries(PRODUCTS.map(product => [product.value, []])),
     deliveryMessages: Object.fromEntries(PRODUCTS.map(product => [product.value, ''])),
     deliveryLinks: Object.fromEntries(PRODUCTS.map(product => [product.value, null])),
     images: Object.fromEntries(PRODUCTS.map(product => [product.value, product.imageFile ? `asset:${product.imageFile}` : product.imageUrl ?? null])),
@@ -29,10 +30,11 @@ export const COMMERCE_AUTOMATION_LABELS = {
 export function getCommerceConfig() {
     const value = readJsonData(FILE, EMPTY);
     const saved = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    return {
+    const config = {
         ...structuredClone(EMPTY), ...saved,
         automations: { ...EMPTY.automations, ...(saved.automations ?? {}) },
         roles: { ...EMPTY.roles, ...(saved.roles ?? {}) },
+        roleIds: { ...EMPTY.roleIds, ...(saved.roleIds ?? {}) },
         deliveryMessages: { ...EMPTY.deliveryMessages, ...(saved.deliveryMessages ?? {}) },
         deliveryLinks: { ...EMPTY.deliveryLinks, ...(saved.deliveryLinks ?? {}) },
         images: { ...EMPTY.images, ...(saved.images ?? {}) },
@@ -41,6 +43,22 @@ export function getCommerceConfig() {
         customProducts: Array.isArray(saved.customProducts) ? saved.customProducts : [],
         coupons: Array.isArray(saved.coupons) ? saved.coupons : []
     };
+    if (config.roles.cargo_booster === '1552729304918523914' && config.roles.booster_premium === '1547208735267754175') {
+        config.roles.cargo_booster = '1547208735267754175';
+        config.roles.booster_premium = '1552729304918523914';
+        config.roleIds.cargo_booster = ['1547208735267754175'];
+        config.roleIds.booster_premium = ['1552729304918523914', '1547208735267754175'];
+        config.productDetails.cargo_booster = { ...config.productDetails.cargo_booster, roleName: 'Server Booster (pago)' };
+        config.productDetails.booster_premium = { ...config.productDetails.booster_premium, roleName: 'Premium Booster + Server Booster' };
+        writeJsonData(FILE, config);
+    }
+    for (const product of [...PRODUCTS, ...config.customProducts]) {
+        if (!Array.isArray(config.roleIds[product.value]) || !config.roleIds[product.value].length) {
+            config.roleIds[product.value] = config.roles[product.value] ? [config.roles[product.value]] : [];
+        }
+        config.roles[product.value] = config.roleIds[product.value][0] ?? config.roles[product.value] ?? null;
+    }
+    return config;
 }
 
 function productValues(config = getCommerceConfig()) {
@@ -56,6 +74,7 @@ export function getCommerceProducts({ includeInactive = true } = {}) {
             ...(config.productDetails[product.value] ?? {}),
             imageUrl: config.images[product.value] ?? product.imageUrl ?? null,
             roleId: config.roles[product.value] ?? null,
+            roleIds: config.roleIds[product.value] ?? (config.roles[product.value] ? [config.roles[product.value]] : []),
             stock: config.stock[product.value] ?? null,
             deliveryMessage: config.deliveryMessages[product.value] ?? '',
             deliveryLink: config.deliveryLinks[product.value] ?? null,
@@ -79,9 +98,19 @@ export function setCommerceAutomation(key, active) {
 }
 
 export function setProductRole(productValue, roleId) {
+    return setProductRoles(productValue, roleId ? [roleId] : []);
+}
+
+export function setProductRoles(productValue, roleIds) {
     if (!productExists(productValue)) throw new TypeError('Produto inválido.');
+    if (!Array.isArray(roleIds) || roleIds.length > 5 || roleIds.some(id => typeof id !== 'string' || !/^\d{17,20}$/.test(id))) {
+        throw new TypeError('Selecione até 5 cargos válidos para o produto.');
+    }
+    const uniqueRoleIds = [...new Set(roleIds)];
+    if (!uniqueRoleIds.length) throw new TypeError('Selecione ao menos um cargo para entregar.');
     const config = getCommerceConfig();
-    config.roles[productValue] = roleId || null;
+    config.roleIds[productValue] = uniqueRoleIds;
+    config.roles[productValue] = uniqueRoleIds[0];
     save(config);
     return config;
 }
@@ -122,7 +151,7 @@ export function getCommerceProduct(productValue) {
     if (!product) return null;
     const config = getCommerceConfig();
     return { ...product, ...config.productDetails[productValue], imageUrl: config.images[productValue] ?? product.imageUrl ?? null,
-        roleId: config.roles[productValue], stock: config.stock[productValue],
+        roleId: config.roles[productValue], roleIds: config.roleIds[productValue] ?? [], stock: config.stock[productValue],
         deliveryMessage: config.deliveryMessages[productValue], deliveryLink: config.deliveryLinks[productValue],
         active: config.productDetails[productValue]?.active !== false };
 }
@@ -198,6 +227,7 @@ export function createCommerceProduct(values) {
     }
     config.customProducts.push({ name, value, description, roleName, durationDays, originalPriceCents, defaultPriceCents: priceCents, emoji: String(values.emoji ?? '🛍️').trim().slice(0, 8) || '🛍️', imageFile: null });
     config.roles[value] = null;
+    config.roleIds[value] = [];
     config.deliveryMessages[value] = '';
     config.deliveryLinks[value] = null;
     config.images[value] = imageUrl || null;
@@ -229,7 +259,7 @@ export function removeCommerceProduct(productValue, { hasOrders = false } = {}) 
         return 'archived';
     }
     config.customProducts.splice(customIndex, 1);
-    for (const section of ['roles', 'deliveryMessages', 'deliveryLinks', 'images', 'productDetails', 'stock']) delete config[section][productValue];
+    for (const section of ['roles', 'roleIds', 'deliveryMessages', 'deliveryLinks', 'images', 'productDetails', 'stock']) delete config[section][productValue];
     save(config);
     return 'deleted';
 }

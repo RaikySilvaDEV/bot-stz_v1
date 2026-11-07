@@ -28,11 +28,11 @@ async function registrarVendaEFecharTicket(order) {
 
     if (!order.salesLogAt) {
         const product = getCommerceProduct(order.productValue);
-        const roleId = order.deliveryRoleId;
-        const role = roleId ? await guild.roles.fetch(roleId).catch(() => null) : null;
+        const roleIds = order.deliveryRoleIds?.length ? order.deliveryRoleIds : [order.deliveryRoleId].filter(Boolean);
+        const roles = await Promise.all(roleIds.map(roleId => guild.roles.fetch(roleId).catch(() => null)));
         const customer = await guild.members.fetch(order.buyerId).catch(() => null);
         const customerName = customer?.displayName ?? order.buyerId;
-        const cargo = role?.name ?? product?.roleName ?? 'não identificado';
+        const cargo = roles.filter(Boolean).map(role => role.name).join(', ') || product?.roleName || 'não identificado';
         await logAction(guild, order.buyerId, 'Venda aprovada',
             `Cliente: ${customerName}; produto: ${order.productName}; valor bruto: ${formatPrice(order.amountCents)}; taxa Mercado Pago: ${Number.isSafeInteger(order.feeAmountCents) ? formatPrice(order.feeAmountCents) : 'indisponível'}; líquido recebido: ${Number.isSafeInteger(order.netAmountCents) ? formatPrice(order.netAmountCents) : 'indisponível'}; cargo: ${cargo}; pedido: ${order.id}`);
         updateOrder(order.id, { salesLogAt: new Date().toISOString() });
@@ -78,6 +78,30 @@ async function registrarVendaEFecharTicket(order) {
     }
 }
 
+async function reconcileDeliveredOrderRoles(order, guild, now) {
+    if (!guild || order.status !== 'delivered' || order.deliveryRolesSyncedAt ||
+        (order.entitlementExpiresAt && Date.parse(order.entitlementExpiresAt) <= now)) return;
+    const product = getCommerceProduct(order.productValue);
+    const desiredRoleIds = product?.roleIds?.length ? product.roleIds : [product?.roleId].filter(Boolean);
+    if (!desiredRoleIds.length) return;
+    const member = await guild.members.fetch(order.buyerId).catch(() => null);
+    if (!member) return;
+    const roles = await Promise.all(desiredRoleIds.map(roleId => guild.roles.fetch(roleId).catch(() => null)));
+    if (roles.some(role => !role || role.managed || guild.members.me.roles.highest.comparePositionTo(role) <= 0)) return;
+    try {
+        for (const role of roles) {
+            if (!member.roles.cache.has(role.id)) {
+                await member.roles.add(role, `Sincronização de cargos do pedido ${order.id}`);
+                await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id });
+            }
+        }
+        const deliveryRoleIds = [...new Set([...(order.deliveryRoleIds ?? []), order.deliveryRoleId, ...roles.map(role => role.id)].filter(Boolean))];
+        updateOrder(order.id, { deliveryRoleId: order.deliveryRoleId ?? roles[0].id, deliveryRoleIds, deliveryRolesSyncedAt: new Date().toISOString(), deliveryError: null });
+    } catch (error) {
+        console.warn(`[loja:sincronização:${order.id}] Não foi possível completar todos os cargos; haverá nova tentativa:`, error.message);
+    }
+}
+
 export async function handlePaidOrder(orderId, paymentDetails = {}, { forceDelivery = false } = {}) {
     const order = getOrders().find(item => item.id === orderId);
     if (!order) return { ok: false, reason: 'Pedido não encontrado.' };
@@ -103,18 +127,23 @@ export async function handlePaidOrder(orderId, paymentDetails = {}, { forceDeliv
         // A reserva vira venda; não devolver ao estoque.
     }
     if (config.automations.automaticDelivery) {
-        const roleId = config.roles[product.value];
+        const roleIds = product.roleIds?.length ? product.roleIds : [config.roles[product.value]].filter(Boolean);
         try {
-            if (!roleId) throw new Error('Cargo do produto ainda não foi configurado em /loja cargo.');
+            if (!roleIds.length) throw new Error('Cargo do produto ainda não foi configurado em /loja cargo.');
             const guild = client.guilds.cache.get(order.guildId) ?? await client.guilds.fetch(order.guildId);
             const member = await guild.members.fetch(order.buyerId);
-            const role = await guild.roles.fetch(roleId);
-            if (!role || role.managed || guild.members.me.roles.highest.comparePositionTo(role) <= 0) throw new Error('Cargo inválido, gerenciado ou acima do cargo do bot.');
-            if (!member.roles.cache.has(role.id)) {
-                await member.roles.add(role, `Pedido pago ${order.id}`);
-                await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id });
+            const roles = await Promise.all(roleIds.map(roleId => guild.roles.fetch(roleId)));
+            for (const role of roles) {
+                if (!role || role.managed || guild.members.me.roles.highest.comparePositionTo(role) <= 0) throw new Error(`Cargo ${role?.name ?? 'desconhecido'} inválido ou acima do cargo do bot.`);
             }
-            updated = updateOrder(order.id, { status: 'delivered', deliveredAt: new Date().toISOString(), deliveryRoleId: role.id });
+            for (const role of roles) {
+                if (!member.roles.cache.has(role.id)) {
+                    await member.roles.add(role, `Pedido pago ${order.id}`);
+                    await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id });
+                }
+            }
+            updated = updateOrder(order.id, { status: 'delivered', deliveredAt: new Date().toISOString(),
+                deliveryRoleId: roles[0].id, deliveryRoleIds: roles.map(role => role.id), deliveryRolesSyncedAt: new Date().toISOString() });
             if (config.automations.digitalDelivery) {
                 const message = config.deliveryMessages[product.value] || product.description;
                 const link = config.deliveryLinks[product.value];
@@ -177,6 +206,9 @@ export async function runCommerceAutomations() {
         const now = Date.now();
         const guild = client.guilds.cache.get(GUILD_ID);
         for (const order of getOrders()) {
+            if (config.automations.automaticDelivery && order.status === 'delivered' && !order.deliveryRolesSyncedAt) {
+                await reconcileDeliveredOrderRoles(order, client.guilds.cache.get(order.guildId) ?? guild, now);
+            }
             if (order.provider === 'mercadoPago' && order.paidAt && order.status === 'delivered' &&
                 ((!order.ticketClosedAt && !order.ticketCloseSkippedAt) || !order.saleChannelLogAt)) {
                 await registrarVendaEFecharTicket(order);
@@ -196,16 +228,20 @@ export async function runCommerceAutomations() {
                     await user?.send(`Seu pedido **${order.productName}** expirou e o carrinho foi cancelado. Você pode iniciar uma nova compra quando quiser.`).catch(() => {});
                 }
             }
-            if (config.automations.roleExpiration && order.entitlementExpiresAt && !order.roleExpiredAt && Date.parse(order.entitlementExpiresAt) <= now && order.deliveryRoleId) {
+            if (config.automations.roleExpiration && order.entitlementExpiresAt && !order.roleExpiredAt && Date.parse(order.entitlementExpiresAt) <= now && (order.deliveryRoleIds?.length || order.deliveryRoleId)) {
                 try {
                     const targetGuild = client.guilds.cache.get(order.guildId) ?? guild;
                     const member = await targetGuild?.members.fetch(order.buyerId);
-                    const hasNewerAccess = getOrders().some(other => other.id !== order.id && other.guildId === order.guildId && other.buyerId === order.buyerId &&
-                        other.deliveryRoleId === order.deliveryRoleId && other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt);
-                    if (!hasNewerAccess && member?.roles.cache.has(order.deliveryRoleId)) {
-                        await member.roles.remove(order.deliveryRoleId, `Acesso expirado no pedido ${order.id}`);
-                        const role = await targetGuild.roles.fetch(order.deliveryRoleId).catch(() => null);
-                        if (role) await logRoleChange(targetGuild, { member, role, action: 'removal', orderId: order.id });
+                    const roleIds = [...new Set(order.deliveryRoleIds?.length ? order.deliveryRoleIds : [order.deliveryRoleId].filter(Boolean))];
+                    const orders = getOrders();
+                    for (const roleId of roleIds) {
+                        const hasNewerAccess = orders.some(other => other.id !== order.id && other.guildId === order.guildId && other.buyerId === order.buyerId &&
+                            (other.deliveryRoleIds?.includes(roleId) || other.deliveryRoleId === roleId) && other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt);
+                        if (!hasNewerAccess && member?.roles.cache.has(roleId)) {
+                            await member.roles.remove(roleId, `Acesso expirado no pedido ${order.id}`);
+                            const role = await targetGuild.roles.fetch(roleId).catch(() => null);
+                            if (role) await logRoleChange(targetGuild, { member, role, action: 'removal', orderId: order.id });
+                        }
                     }
                     updateOrder(order.id, { status: 'expired', roleExpiredAt: new Date().toISOString() });
                 } catch (error) {

@@ -52,7 +52,7 @@ export async function logSale(guild, order) {
         .addFields(
             { name: '👤 Cliente', value: `**${name}**\n${member?.user?.tag ?? 'Usuário'}\n<@${order.buyerId}>`, inline: false },
             { name: '📦 Produto', value: String(order.productName ?? 'Produto').slice(0, 1024), inline: true },
-            { name: '🛂 Cargo liberado', value: order.deliveryRoleId ? `<@&${order.deliveryRoleId}>` : 'Não identificado', inline: true },
+            { name: '🛂 Cargos liberados', value: (order.deliveryRoleIds?.length ? order.deliveryRoleIds : [order.deliveryRoleId].filter(Boolean)).map(roleId => `<@&${roleId}>`).join(' + ') || 'Não identificado', inline: true },
             { name: '💰 Valor bruto', value: format(order.amountCents), inline: true },
             { name: '📉 Taxa Mercado Pago', value: Number.isSafeInteger(order.feeAmountCents) ? format(order.feeAmountCents) : 'Indisponível', inline: true },
             { name: '💵 Líquido recebido', value: Number.isSafeInteger(order.netAmountCents) ? format(order.netAmountCents) : 'Indisponível', inline: true },

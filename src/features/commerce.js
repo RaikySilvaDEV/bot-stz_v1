@@ -57,7 +57,7 @@ export function criarVitrineLoja() {
             .addFields(
                 { name: '💸 Preço', value: discount, inline: true },
                 { name: '🛒 Estoque', value: stock, inline: true },
-                { name: '🛂 Você receberá', value: `**${product.roleName}**`, inline: true },
+                { name: '🛂 Você receberá', value: product.roleIds?.length ? product.roleIds.map(roleId => `<@&${roleId}>`).join(' + ') : `**${product.roleName}**`, inline: true },
                 { name: '🗓️ Validade', value: `${product.durationDays} dias`, inline: true }
             )
             .setFooter({ text: 'Powered by AG Solutions' });
@@ -198,7 +198,8 @@ async function validateCheckout(interaction, product) {
         return 'O pagamento da loja é feito somente pelo Mercado Pago, mas a integração não está ativa ou configurada. Avise a equipe.';
     }
     if (!config.automations.automaticDelivery) return 'A entrega automática está desligada. A equipe precisa ativá-la em `/loja automacao` antes de receber pedidos.';
-    if (!product.roleId) return `O cargo de entrega de **${product.name}** ainda não foi vinculado. A equipe precisa configurá-lo no painel da loja ou em \`/loja cargo\`.`;
+    const roleIds = product.roleIds?.length ? product.roleIds : [product.roleId].filter(Boolean);
+    if (!roleIds.length) return `Os cargos de entrega de **${product.name}** ainda não foram vinculados. A equipe precisa configurá-los no painel da loja ou em \`/loja cargo\`.`;
     if (!interaction.guild) return 'A compra precisa ser iniciada dentro do servidor.';
     if (config.automations.stock && config.stock[product.value] === 0) return `O produto **${product.name}** está sem estoque no momento.`;
 
@@ -206,9 +207,10 @@ async function validateCheckout(interaction, product) {
     if (!botMember.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
         return 'O bot precisa da permissão Gerenciar Cargos para entregar este produto.';
     }
-    const role = await interaction.guild.roles.fetch(product.roleId);
-    if (!role || role.managed || botMember.roles.highest.comparePositionTo(role) <= 0) {
-        return `O cargo de **${product.name}** é inválido ou está acima do cargo do bot. Ajuste o cargo no painel da loja.`;
+    const roles = await Promise.all(roleIds.map(roleId => interaction.guild.roles.fetch(roleId).catch(() => null)));
+    const invalid = roles.find(role => !role || role.managed || botMember.roles.highest.comparePositionTo(role) <= 0);
+    if (invalid || roles.some(role => !role)) {
+        return `Um dos cargos de **${product.name}** é inválido ou está acima do cargo do bot. Ajuste os cargos no painel da loja.`;
     }
     return null;
 }

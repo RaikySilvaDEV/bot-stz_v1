@@ -366,7 +366,7 @@ function renderStore() {
       <form class="product-form" data-value="${escapeHtml(product.value)}">
         <div class="form-grid two"><div><label>Nome do produto</label><input name="name" value="${escapeHtml(product.name)}" maxlength="80" required></div><div><label>Nome do cargo exibido</label><input name="roleName" value="${escapeHtml(product.roleName)}" maxlength="100" required></div></div>
         <label>Descrição da vitrine</label><textarea name="description" maxlength="1000" rows="3" required>${escapeHtml(product.description)}</textarea>
-        <div class="form-grid three"><div><label>Cargo a entregar</label><select name="roleId" required><option value="" disabled ${product.roleId ? '' : 'selected'}>Selecione o cargo</option>${product.roleId && !state.roles.some(role => role.id === product.roleId) ? `<option value="${escapeHtml(product.roleId)}" selected>Cargo ${escapeHtml(product.roleId)} (verifique hierarquia)</option>` : ''}${state.roles.map(role => `<option value="${escapeHtml(role.id)}" ${product.roleId === role.id ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('')}</select></div><div><label>Validade (dias)</label><input name="durationDays" type="number" min="1" max="3650" value="${product.durationDays}" required></div><div><label>Estoque (vazio = ∞)</label><input name="stock" type="number" min="0" max="100000" value="${product.stock ?? ''}" placeholder="∞"></div></div>
+        <div class="form-grid three"><div><label>Cargos entregues (selecione todos)</label><select name="roleIds" multiple size="4" required>${state.roles.map(role => `<option value="${escapeHtml(role.id)}" ${(product.roleIds ?? [product.roleId].filter(Boolean)).includes(role.id) ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('')}</select><p class="detail">No computador, use Ctrl para marcar mais de um cargo. O pacote Booster + Premium libera os cargos Premium Booster e Server Booster.</p></div><div><label>Validade (dias)</label><input name="durationDays" type="number" min="1" max="3650" value="${product.durationDays}" required></div><div><label>Estoque (vazio = ∞)</label><input name="stock" type="number" min="0" max="100000" value="${product.stock ?? ''}" placeholder="∞"></div></div>
         <div class="form-grid two"><div><label>Preço promocional (R$)</label><input name="price" type="number" min="0.01" max="999999.99" step="0.01" value="${(product.priceCents / 100).toFixed(2)}" required></div><div><label>Preço original (R$)</label><input name="originalPrice" type="number" min="0.01" max="999999.99" step="0.01" value="${(product.originalPriceCents / 100).toFixed(2)}" required></div></div>
         <label>Imagem ou GIF (URL HTTPS; vazio restaura imagem incluída)</label><input name="customImageUrl" type="url" maxlength="500" value="${escapeHtml(product.customImageUrl)}" placeholder="https://…">
         <label>Instruções privadas após a compra</label><textarea name="deliveryMessage" maxlength="1500" rows="2">${escapeHtml(product.deliveryMessage)}</textarea>
@@ -400,7 +400,8 @@ function renderStore() {
     payload.priceCents = fromMoney(payload.price);
     payload.originalPriceCents = fromMoney(payload.originalPrice);
     payload.stock = payload.stock === '' ? null : Number(payload.stock);
-    payload.roleId = payload.roleId || null;
+    payload.roleIds = fields.getAll('roleIds');
+    payload.roleId = payload.roleIds[0] || null;
     delete payload.price;
     delete payload.originalPrice;
     const button = form.querySelector('button[type="submit"]');
