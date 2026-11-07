@@ -65,6 +65,9 @@ function sanitizeText(value, maximum) {
     return String(value ?? '')
         .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redigido]')
         .replace(/\b(?:password|senha|token|secret|segredo|api[_ -]?key|chave pix)\s*[:=]\s*[^\s,;]+/gi, '[dado sensível redigido]')
+        .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[e-mail redigido]')
+        .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[CPF redigido]')
+        .replace(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?9?\d{4}[-. ]?\d{4}\b/g, '[telefone redigido]')
         .replace(/\b(?:mfa\.[\w-]{20,}|[\w-]{24,}\.[\w-]{6,}\.[\w-]{20,})\b/g, '[token redigido]')
         .slice(0, maximum);
 }

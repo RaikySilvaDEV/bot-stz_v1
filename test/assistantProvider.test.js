@@ -159,9 +159,9 @@ test('redacts credentials, bounds prompt and answer lengths, and honors disabled
     const instance = provider(async (_url, init) => { sentBody = JSON.parse(init.body); return chat('x'.repeat(500)); }, {
         OLLAMA_MAX_PROMPT_CHARS: '500', OLLAMA_MAX_RESPONSE_CHARS: '100'
     });
-    const answer = await instance.generate('system', [{ content: 'token=super-secret ' + 'a'.repeat(900) }]);
+    const answer = await instance.generate('system', [{ content: 'token=super-secret email cliente@example.com CPF 123.456.789-00 telefone +55 (11) 98765-4321 ' + 'a'.repeat(900) }]);
     assert.equal(answer.length, 100);
-    assert.doesNotMatch(JSON.stringify(sentBody), /super-secret/);
+    assert.doesNotMatch(JSON.stringify(sentBody), /super-secret|cliente@example\.com|123\.456\.789-00|98765-4321/);
     assert.ok(sentBody.messages.at(-1).content.length <= 500);
 
     const disabled = provider(async () => { throw new Error('must not call'); }, { OLLAMA_ENABLED: 'false' });
