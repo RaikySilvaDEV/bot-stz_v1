@@ -7,3 +7,7 @@ test('announcement warns against messages and explains the anti-self-bot purpose
     assert.match(ANNOUNCEMENT_NOTICE_TEXT, /poderá receber banimento/);
     assert.match(ANNOUNCEMENT_NOTICE_TEXT, /self-bots/);
 });
+
+test('announcement does not include automatic message deletion or ban actions', () => {
+    assert.doesNotMatch(ANNOUNCEMENT_NOTICE_TEXT, /guild\.members\.ban|message\.delete/);
+});

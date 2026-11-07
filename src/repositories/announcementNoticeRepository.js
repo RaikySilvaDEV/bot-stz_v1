@@ -4,9 +4,11 @@ const FILE = 'announcement-notice.json';
 
 export function getAnnouncementNoticeMessageId() {
     const state = readJsonData(FILE, {});
-    return typeof state?.messageId === 'string' ? state.messageId : null;
+    return state && typeof state === 'object' && typeof state.messageId === 'string'
+        ? state
+        : null;
 }
 
-export function saveAnnouncementNoticeMessageId(messageId) {
-    writeJsonData(FILE, { messageId, savedAt: new Date().toISOString() });
+export function saveAnnouncementNoticeMessageId(channelId, messageId) {
+    writeJsonData(FILE, { channelId, messageId, savedAt: new Date().toISOString() });
 }
