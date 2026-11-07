@@ -16,6 +16,7 @@ import { criarVitrineLoja, publicarSeletorProdutos, tratarInteracaoCompras } fro
 import { tratarAdminLoja } from '../features/commerceAdmin.js';
 import { tratarInteracaoFeedback } from '../features/commerceFeedback.js';
 import { tratarComandoIa } from '../features/assistantCommands.js';
+import { iniciarAtendimentoAutomatico } from '../features/tickets.js';
 
 const ticketsEmCriacao = new Set();
 let criandoCategoriaCompras = null;
@@ -170,13 +171,24 @@ async function criarTicketPrivado(interaction, type, selectedOption = null) {
         if (type === 'purchase') {
             await publicarSeletorProdutos(channel);
         } else {
+            const ticketIntro = [
+                `Cliente: <@${interaction.user.id}>`,
+                `Assunto: **${selectedOption?.label ?? 'Atendimento geral'}**`,
+                selectedOption?.description ?? '',
+                settings.automations.aiResponses
+                    ? 'A assistente virtual vai iniciar o atendimento automaticamente. Conte com detalhes o que você precisa.'
+                    : 'A equipe responderá assim que possível.'
+            ].filter(Boolean).join('\n');
             await channel.send({
                 embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🎫 Atendimento aberto')
-                    .setDescription(`Cliente: <@${interaction.user.id}>\nAssunto: **${selectedOption?.label ?? 'Atendimento geral'}**\n\n${selectedOption?.description ?? 'A equipe responderá assim que possível.'}`)
+                    .setDescription(ticketIntro)
                     .setTimestamp()],
                 components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('fechar_ticket').setLabel('Fechar ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒'))],
                 allowedMentions: { users: [interaction.user.id] }
             });
+            if (settings.automations.aiResponses) {
+                void iniciarAtendimentoAutomatico(channel, interaction.user.id, selectedOption);
+            }
         }
         await logAction(guild, interaction.user.id, type === 'purchase' ? 'Ticket de compra aberto' : 'Ticket de suporte aberto', `Canal ${channel.name}`);
         await interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
