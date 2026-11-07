@@ -12,7 +12,15 @@ async function findLogChannel(guild, configuredId, fallbackName) {
     return channels.find(channel => channel?.isTextBased() && channel.name === fallbackName) ?? null;
 }
 
-export async function logRoleChange(guild, { member, role, action, status = 'Sucesso', orderId = null }) {
+function formatDateTime(value, timezone) {
+    if (!value || !Number.isFinite(Date.parse(value))) return 'Indisponível';
+    return new Intl.DateTimeFormat('pt-BR', {
+        timeZone: timezone || 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short'
+    }).format(new Date(value));
+}
+
+export async function logRoleChange(guild, { member, role, action, status = 'Sucesso', orderId = null, paidAt = null, expiresAt = null }) {
     const settings = getSettings();
     if (!guild || !member || !role) return false;
     const channel = await findLogChannel(guild, settings.channels.roleLogs, 'registros-de-cargos') ??
@@ -30,6 +38,8 @@ export async function logRoleChange(guild, { member, role, action, status = 'Suc
         )
         .setTimestamp();
     if (orderId) embed.addFields({ name: '🧾 Pedido', value: `\`${orderId}\``, inline: false });
+    if (paidAt) embed.addFields({ name: '📅 Compra em', value: formatDateTime(paidAt, settings.timezone), inline: true });
+    if (expiresAt) embed.addFields({ name: '⏳ Cargo expira em', value: formatDateTime(expiresAt, settings.timezone), inline: true });
     try {
         await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
         return true;
@@ -41,7 +51,8 @@ export async function logRoleChange(guild, { member, role, action, status = 'Suc
 
 export async function logSale(guild, order) {
     if (!guild || !order) return false;
-    const channel = await findLogChannel(guild, getSettings().channels.salesLogs, 'registros-de-vendas');
+    const settings = getSettings();
+    const channel = await findLogChannel(guild, settings.channels.salesLogs, 'registros-de-vendas');
     if (!channel) return false;
     const member = await guild.members.fetch(order.buyerId).catch(() => null);
     const name = member?.displayName || member?.user?.globalName || member?.user?.username || 'Cliente';
@@ -56,6 +67,8 @@ export async function logSale(guild, order) {
             { name: '💰 Valor bruto', value: format(order.amountCents), inline: true },
             { name: '📉 Taxa Mercado Pago', value: Number.isSafeInteger(order.feeAmountCents) ? format(order.feeAmountCents) : 'Indisponível', inline: true },
             { name: '💵 Líquido recebido', value: Number.isSafeInteger(order.netAmountCents) ? format(order.netAmountCents) : 'Indisponível', inline: true },
+            { name: '📅 Compra em', value: formatDateTime(order.paidAt, settings.timezone), inline: true },
+            { name: '⏳ Cargo expira em', value: formatDateTime(order.entitlementExpiresAt, settings.timezone), inline: true },
             { name: '✅ Status', value: 'Pago e entregue', inline: true },
             { name: '🧾 Pedido', value: `\`${String(order.id).slice(0, 100)}\``, inline: false }
         )
