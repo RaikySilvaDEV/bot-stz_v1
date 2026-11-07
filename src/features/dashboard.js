@@ -18,6 +18,7 @@ import { COMMERCE_AUTOMATION_LABELS, getCommerceConfig, getCommerceProducts, set
 import { mercadoPagoConfigReady } from '../services/mercadoPago.js';
 import { getPartnerPayoutDashboard } from '../services/partnerPayouts.js';
 import { getAssistantStatus } from '../services/assistantProvider.js';
+import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
 
 const PAGES = [
     ['geral', 'Visão geral'], ['automacoes', 'Automações'],
@@ -104,7 +105,7 @@ async function collectStatus(guild) {
     const ticketPermissionReady = Boolean(category && botMember && category.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels));
     const wallpaperState = getWallpaperState();
     const stockState = getStockState();
-    const currentWallpaperExists = fs.existsSync(`${PATHS.wallpapers}/${wallpaperState.diaAtual}.png`);
+    const currentWallpaperExists = Boolean(getWallpaperPath(wallpaperState.diaAtual));
     const stockCtzCount = countAssets(PATHS.ctz, stockState.ctz.indexAtual);
     const stockBoostersCount = countAssets(PATHS.boosters, stockState.boosters.indexAtual);
     const paymentConfig = getPaymentConfig();

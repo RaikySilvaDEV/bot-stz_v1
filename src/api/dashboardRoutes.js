@@ -33,6 +33,7 @@ import {
 } from '../services/partnerPayouts.js';
 import { logAction } from '../services/audit.js';
 import { getTicketPanelConfig, updateTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
+import { getWallpaperImageContentType, listWallpapers, readWallpaperImage, saveWallpaper } from '../repositories/wallpaperRepository.js';
 import { configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
@@ -79,6 +80,17 @@ function sendStoreImage(res, filename) {
         res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
         res.end(image);
     } catch { responder(res, 404, { erro: 'Imagem não encontrada.' }); }
+}
+
+async function readRawBody(req, maxBytes) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+        size += chunk.length;
+        if (size > maxBytes) throw Object.assign(new Error('O arquivo excede o limite de 25 MiB.'), { status: 413 });
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks, size);
 }
 
 function safeOrder(order) {
@@ -178,6 +190,17 @@ export async function handleDashboardRoute(req, res, url, readJson) {
         sendPageFile(res, filename, contentType);
         return true;
     }
+    const wallpaperImageMatch = pathname.match(/^\/painel\/wallpaper-images\/([^/]+)$/);
+    if (req.method === 'GET' && wallpaperImageMatch) {
+        if (!dashboardRequestAuthorized(req)) return responder(res, 401, { erro: 'Entre no painel para continuar.' }), true;
+        const filename = decodeURIComponent(wallpaperImageMatch[1]);
+        const image = readWallpaperImage(filename);
+        const contentType = getWallpaperImageContentType(filename);
+        if (!image || !contentType) return responder(res, 404, { erro: 'Wallpaper não encontrado.' }), true;
+        res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'private, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+        res.end(image);
+        return true;
+    }
     const iconMatch = pathname.match(/^\/painel\/icons\/([a-z0-9-]+\.svg)$/);
     if (req.method === 'GET' && iconMatch) {
         if (!LUCIDE_ICONS.has(iconMatch[1])) return responder(res, 404, { erro: 'Ícone não encontrado.' }), true;
@@ -220,6 +243,16 @@ export async function handleDashboardRoute(req, res, url, readJson) {
     }
 
     try {
+        if (pathname === '/api/painel/wallpapers' && req.method === 'GET') {
+            return responder(res, 200, listWallpapers()), true;
+        }
+        if (pathname === '/api/painel/wallpapers' && req.method === 'POST') {
+            const originalName = decodeURIComponent(String(req.headers['x-file-name'] ?? ''));
+            if (!originalName || originalName.length > 255) return responder(res, 400, { erro: 'Informe o nome do arquivo de imagem.' }), true;
+            const image = await readRawBody(req, 25 * 1024 * 1024);
+            const wallpaper = await saveWallpaper(image, originalName);
+            return responder(res, 201, { wallpaper, wallpapers: listWallpapers() }), true;
+        }
         if (pathname === '/api/painel/status' && req.method === 'GET') {
             return responder(res, 200, await getDashboardDetails()), true;
         }
@@ -392,7 +425,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
         }
         if (pathname === '/api/painel/announcements' && req.method === 'POST') {
             const body = await readJson(req);
-            const announcement = await criarAnuncioFiveM({ titulo: body?.titulo, texto: body?.texto, actorId: 'painel-web' });
+            const announcement = await criarAnuncioFiveM({ titulo: body?.titulo, texto: body?.texto, imageUrl: body?.imageUrl, actorId: 'painel-web' });
             return responder(res, 201, { announcement, announcements: listarAnunciosFiveM() }), true;
         }
         const announcementMatch = pathname.match(/^\/api\/painel\/announcements\/([^/]+)$/);

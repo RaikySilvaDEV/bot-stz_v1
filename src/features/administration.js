@@ -20,6 +20,7 @@ import { getOrders } from '../repositories/orderRepository.js';
 import { getFeedback } from '../repositories/feedbackRepository.js';
 import { getProductPrices } from '../repositories/productCatalogRepository.js';
 import { getAssistantStatus } from '../services/assistantProvider.js';
+import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
 
 const CHANNEL_LABELS = {
     partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets de suporte',
@@ -89,7 +90,7 @@ export async function tratarInteracaoAdministracao(interaction) {
             `Anúncios FiveM cadastrados: ${listarAnunciosFiveM().length}`,
             `IA local: ${settings.automations.aiResponses ? assistantStatus.detail : 'autoatendimento pausado'}`,
             `API local: ${apiStatus.running ? `ativa na porta ${apiStatus.port}` : 'inativa (configure API_KEY para ativar)'}`,
-            `Wallpaper atual: dia ${wallpaperState.diaAtual}/105 (${fs.existsSync(path.join(PATHS.wallpapers, `${wallpaperState.diaAtual}.png`)) ? 'arquivo pronto' : 'arquivo ausente'})`,
+            `Wallpaper atual: dia ${wallpaperState.diaAtual}/105 (${getWallpaperPath(wallpaperState.diaAtual) ? 'arquivo pronto' : 'arquivo ausente'})`,
             `Armazém CTZ: item #${stockState.ctz.indexAtual}, ${contarArquivosDoItem(PATHS.ctz, stockState.ctz.indexAtual)} arquivo(s), ${tempoRestante(stockState.ctz.ultimoTimestampEnvio)}`,
             `Armazém Boosters: item #${stockState.boosters.indexAtual}, ${contarArquivosDoItem(PATHS.boosters, stockState.boosters.indexAtual)} arquivo(s), ${tempoRestante(stockState.boosters.ultimoTimestampEnvio)}`,
             `Memória: ${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB`,

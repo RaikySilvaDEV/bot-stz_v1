@@ -19,6 +19,7 @@ import {
     getAnnouncementHoursCompleted, getWallpaperDateCompleted,
     markAnnouncementHoursCompleted, markWallpaperDateCompleted
 } from '../repositories/automationScheduleRepository.js';
+import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
 
 const ultimasMensagensLoop = new Map(Object.entries(getAutomationMessageIds()));
 const ultimoAvisoAssetAusente = new Map();
@@ -203,8 +204,8 @@ export async function dispararWallpaperDiario() {
     if (!guild) { console.error('[wallpapers] Bot não está no servidor configurado.'); return false; }
     const estado = getWallpaperState();
     const diaAtual = estado.diaAtual;
-    const arquivoPath = path.join(PATHS.wallpapers, `${diaAtual}.png`);
-    if (!fs.existsSync(arquivoPath)) {
+    const arquivoPath = getWallpaperPath(diaAtual);
+    if (!arquivoPath) {
         const proximoDia = diaAtual >= 105 ? 1 : diaAtual + 1;
         console.info(`[wallpapers] Arquivo ausente: ${arquivoPath}. Pulando o dia ${diaAtual} e continuando pelo dia ${proximoDia} amanhã.`);
         saveWallpaperState({ diaAtual: proximoDia });
@@ -223,7 +224,7 @@ export async function dispararWallpaperDiario() {
             markWallpaperDateCompleted(dateKey);
             return true;
         }
-        const attachment = new AttachmentBuilder(arquivoPath, { name: `wallpaper-dia-${diaAtual}.png` });
+        const attachment = new AttachmentBuilder(arquivoPath, { name: `wallpaper-dia-${diaAtual}${path.extname(arquivoPath)}` });
         await canal.send({ content: messageContent, files: [attachment] });
         saveWallpaperState({ diaAtual: diaAtual >= 105 ? 1 : diaAtual + 1 });
         markWallpaperDateCompleted(dateKey);
