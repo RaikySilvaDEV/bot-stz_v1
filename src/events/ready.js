@@ -10,6 +10,7 @@ import { configurarPainelDashboard } from '../features/dashboard.js';
 import { startCommerceAutomations } from '../features/commerceAutomations.js';
 import { startFeedbackRecovery } from '../features/commerceFeedback.js';
 import { startMercadoPagoWebhookProcessor } from '../api/mercadoPagoWebhook.js';
+import { publicarAvisoCanalRestrito } from '../features/announcementNotice.js';
 
 async function executarEtapa(nome, tarefa) {
     try {
@@ -25,6 +26,7 @@ client.once('clientReady', async () => {
     startFeedbackRecovery();
     startMercadoPagoWebhookProcessor();
     console.log(`🤖 Bot conectado com sucesso como: ${client.user.tag}`);
+    await executarEtapa('aviso do canal de anúncios', publicarAvisoCanalRestrito);
     try {
         const expired = await removeExpiredTranscripts();
         const remoteExpired = await removeExpiredRemoteTranscripts(client);
