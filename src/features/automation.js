@@ -6,6 +6,8 @@ import path from 'node:path';
 import { client } from '../client.js';
 import { PATHS, GUILD_ID } from '../config/constants.js';
 import { PRODUCTS } from '../config/products.js';
+import { getCommerceProducts } from '../repositories/commerceRepository.js';
+import { getProductPriceCents } from '../repositories/productCatalogRepository.js';
 import { getSaudacaoDinamica } from '../services/greetings.js';
 import {
     getStockState, getWallpaperState, saveStockState, saveWallpaperState
@@ -117,9 +119,17 @@ export function gerarPayloadsLoop() {
         content, allowedMentions,
         ...(greetingFile ? { files: [new AttachmentBuilder(greetingFile, { name: greetingName })], embeds: [greetingEmbed] } : {})
     });
-    const productLines = PRODUCTS.map((product, index) => `• **PRODUTO ${index + 1}:** <#${product.channelId}>`).join('\n');
+    const productLines = getCommerceProducts({ includeInactive: false }).map(product => {
+        const priceCents = getProductPriceCents(product.value);
+        const price = Number.isSafeInteger(priceCents)
+            ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(priceCents / 100)
+            : 'preço em configuração';
+        const access = product.roleId ? `<@&${product.roleId}>` : `cargo **${product.roleName || 'não configurado'}** (equipe: configure o cargo)`;
+        return `• **${product.name}** — ${price}\n  🎟️ Acesso: ${access} · ${product.durationDays} dias`;
+    }).join('\n');
+    const productList = productLines || 'No momento, não há produtos ativos na loja.';
     return {
-        payloadComprasOnline: greetingPayload(`${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n${productLines}\n\n@everyone`),
+        payloadComprasOnline: greetingPayload(`${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n${productList}\n\nAbra seu carrinho no painel de compras para ver os detalhes e finalizar o pedido.\n\n@everyone`),
         payloadVendasSuporte: greetingPayload(`${saudacao}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone`),
         payloadSugestao: greetingPayload(`${saudacao}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone`),
         payloadNovidadesCargos: { content: `# ✨ NOVIDADES NA COMMUNITY FOR FIVEM! ✨\nAtualizamos nossos cargos e vantagens!\n\n@everyone`, allowedMentions },
