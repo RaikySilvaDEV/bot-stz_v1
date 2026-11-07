@@ -1,6 +1,6 @@
 import { ChannelType } from 'discord.js';
 import { client } from '../client.js';
-import { CANAL_ANUNCIO_FIVE_M_ID, GUILD_ID } from '../config/constants.js';
+import { CANAL_ANUNCIO_FIVE_M_ID, CANAL_ARMADILHA_ID } from '../config/constants.js';
 import { getAnnouncementNoticeMessageId, saveAnnouncementNoticeMessageId } from '../repositories/announcementNoticeRepository.js';
 
 export const ANNOUNCEMENT_NOTICE_TEXT = [
@@ -9,29 +9,11 @@ export const ANNOUNCEMENT_NOTICE_TEXT = [
     'Quem enviar mensagens aqui poderá receber banimento. Esta medida ajuda a conter self-bots que espalham spam pelos canais do servidor para tentar infectar outros usuários.'
 ].join('\n');
 
-export function normalizeAnnouncementChannelName(name) {
-    return String(name ?? '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]/g, '');
-}
-
-export function isAnnouncementTargetChannelName(name) {
-    return normalizeAnnouncementChannelName(name).includes('armadilha');
-}
-
 export async function publicarAvisoCanalRestrito() {
-    const guild = client.guilds.cache.get(GUILD_ID) ?? await client.guilds.fetch(GUILD_ID);
-    const channels = await guild.channels.fetch();
-    const targets = [...channels.values()].filter(channel =>
-        channel &&
-        [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type) &&
-        isAnnouncementTargetChannelName(channel.name)
-    );
-    if (targets.length !== 1) {
-        throw new Error(targets.length
-            ? 'Há mais de um canal chamado armadilha; o aviso não foi enviado.'
-            : 'Não encontrei um canal de texto chamado armadilha; o aviso não foi enviado.');
+    const channel = await client.channels.fetch(CANAL_ARMADILHA_ID).catch(() => null);
+    if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) {
+        throw new Error('Canal de texto dentro da categoria armadilha não encontrado ou indisponível.');
     }
-
-    const channel = targets[0];
     const previousNotice = getAnnouncementNoticeMessageId();
     const previousChannelId = previousNotice?.channelId || CANAL_ANUNCIO_FIVE_M_ID;
     if (previousNotice && previousChannelId === channel.id) {
