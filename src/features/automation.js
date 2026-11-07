@@ -182,19 +182,23 @@ export async function dispararWallpaperDiario() {
     }
 }
 
-export async function processarEnvioArmazemCincoHoras(guild, nomeArmazem, pastaArmazem, canalDestinoId, estadoKey, forcarEnvio = false) {
+export async function processarEnvioArmazemDiario(guild, nomeArmazem, pastaArmazem, estadoKey, forcarEnvio = false) {
     try {
         const settings = getSettings();
-        if (!settings.automations.stock) return;
-        canalDestinoId = settings.channels[estadoKey === 'ctz' ? 'stockCtz' : 'stockBoosters'];
+        if (!settings.automations.stock) return false;
+        const { dateKey } = getScheduleDateParts(new Date(), settings.timezone);
         const estadoMods = getStockState();
         const armazemEstado = estadoMods[estadoKey];
         const agoraMs = Date.now();
-        const cincoHorasMs = 5 * 60 * 60 * 1000;
-        if (!forcarEnvio && armazemEstado.ultimoTimestampEnvio > 0 && agoraMs - armazemEstado.ultimoTimestampEnvio < cincoHorasMs) return;
+        if (!forcarEnvio && armazemEstado.ultimoTimestampEnvio > 0 &&
+            getScheduleDateParts(new Date(armazemEstado.ultimoTimestampEnvio), settings.timezone).dateKey === dateKey) return true;
 
+        const canalDestinoId = settings.channels[estadoKey === 'ctz' ? 'stockCtz' : 'stockBoosters'];
         const canal = await guild.channels.fetch(canalDestinoId).catch(() => null);
-        if (!canal?.isTextBased()) return console.error(`[armazém:${nomeArmazem}] Canal ${canalDestinoId} não encontrado.`);
+        if (!canal?.isTextBased()) {
+            console.error(`[armazém:${nomeArmazem}] Canal ${canalDestinoId} não encontrado.`);
+            return false;
+        }
         fs.mkdirSync(pastaArmazem, { recursive: true });
         const item = armazemEstado.indexAtual;
         const nomes = fs.readdirSync(pastaArmazem)
@@ -206,7 +210,7 @@ export async function processarEnvioArmazemCincoHoras(guild, nomeArmazem, pastaA
                 console.warn(`[armazém:${nomeArmazem}] Sem arquivos para o item ${item} em ${pastaArmazem}.`);
                 ultimoAvisoAssetAusente.set(nomeArmazem, Date.now());
             }
-            return;
+            return false;
         }
 
         const titulo = nomeArmazem === 'ctz' ? 'Armazém CTZ' : 'Armazém CTZ Boosters';
@@ -248,23 +252,30 @@ ${comando}`);
         armazemEstado.indexAtual += 1;
         armazemEstado.ultimoTimestampEnvio = agoraMs;
         saveStockState(estadoMods);
+        return true;
     } catch (error) {
         console.error(`[armazém:${nomeArmazem}] Falha ao enviar item:`, error);
+        return false;
     }
 }
 
-export async function dispararTodosArmazensCincoHoras(forcarEnvio = false) {
-    if (!getSettings().automations.stock) return;
+export async function dispararArmazensDiarios(forcarEnvio = false) {
+    if (!getSettings().automations.stock) return false;
     const guild = client.guilds.cache.get(GUILD_ID);
-    if (!guild) return console.error('[armazéns] Bot não está no servidor configurado.');
-    await processarEnvioArmazemCincoHoras(guild, 'ctz', PATHS.ctz, null, 'ctz', forcarEnvio);
-    await processarEnvioArmazemCincoHoras(guild, 'boosters', PATHS.boosters, null, 'boosters', forcarEnvio);
+    if (!guild) {
+        console.error('[armazéns] Bot não está no servidor configurado.');
+        return false;
+    }
+    const ctz = await processarEnvioArmazemDiario(guild, 'ctz', PATHS.ctz, 'ctz', forcarEnvio);
+    const boosters = await processarEnvioArmazemDiario(guild, 'boosters', PATHS.boosters, 'boosters', forcarEnvio);
+    return ctz && boosters;
 }
 
 export function iniciarAgendadorRelogio() {
     let ultimoAvisoAgendado = '';
     let ultimoWallpaper = '';
-    let ultimaVerificacaoEstoque = '';
+    let ultimaTentativaEstoqueEm = 0;
+    let dataUltimaTentativaEstoque = '';
     const tarefasEmAndamento = new Set();
     const executarAgendado = (nome, tarefa) => {
         if (tarefasEmAndamento.has(nome)) return;
@@ -288,10 +299,16 @@ export function iniciarAgendadorRelogio() {
             ultimoWallpaper = dataHora;
             executarAgendado('wallpapers', dispararWallpaperDiario);
         }
-        const stockKey = `${dateKey}T${String(hora).padStart(2, '0')}:${String(Math.floor(minuto / 5) * 5).padStart(2, '0')}`;
-        if (settings.automations.stock && minuto % 5 === 0 && stockKey !== ultimaVerificacaoEstoque) {
-            ultimaVerificacaoEstoque = stockKey;
-            executarAgendado('estoque', () => dispararTodosArmazensCincoHoras(false));
+        const stockDue = hora > 12 || (hora === 12 && minuto >= 30);
+        const retryStock = dataUltimaTentativaEstoque !== dateKey || Date.now() - ultimaTentativaEstoqueEm >= 5 * 60 * 1000;
+        if (settings.automations.stock && stockDue && retryStock) {
+            dataUltimaTentativaEstoque = dateKey;
+            ultimaTentativaEstoqueEm = Date.now();
+            executarAgendado('estoque-diario', async () => {
+                if (!await dispararArmazensDiarios(false)) {
+                    console.warn('[armazéns] Um ou mais envios diários falharam; nova tentativa em cinco minutos.');
+                }
+            });
         }
       } catch (error) {
         console.error('[agendador] Falha ao verificar tarefas; nova tentativa no próximo ciclo:', error);
@@ -309,10 +326,6 @@ export async function verificarEnviosPendentesAoLigar() {
         if (missing.length && await dispararAvisosLoopHorario()) markAnnouncementHoursCompleted(dateKey, [...completed, ...missing]);
     }
     if (settings.automations.wallpapers && hour >= 12 && getWallpaperDateCompleted() !== dateKey) await dispararWallpaperDiario();
-    const estado = getStockState();
-    const limite = 5 * 60 * 60 * 1000;
-    const agora = Date.now();
-    const ctzPendente = estado.ctz.ultimoTimestampEnvio === 0 || agora - estado.ctz.ultimoTimestampEnvio >= limite;
-    const boostersPendente = estado.boosters.ultimoTimestampEnvio === 0 || agora - estado.boosters.ultimoTimestampEnvio >= limite;
-    if (ctzPendente || boostersPendente) await dispararTodosArmazensCincoHoras(false);
+    const stockDue = hour > 12 || (hour === 12 && minute >= 30);
+    if (settings.automations.stock && stockDue) await dispararArmazensDiarios(false);
 }

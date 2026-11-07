@@ -23,8 +23,8 @@ const PAGES = [
     ['canais', 'Canais e recursos'], ['pagamentos', 'Pagamentos']
 ];
 const AUTOMATION_LABELS = {
-    announcements: 'Avisos agendados', wallpapers: 'Wallpapers diários',
-    stock: 'Armazéns', aiResponses: 'Atendimento por IA'
+    announcements: 'Avisos agendados', wallpapers: 'Wallpapers às 12:00',
+    stock: 'Armazéns diários às 12:30', aiResponses: 'Atendimento por IA'
 };
 const ALL_AUTOMATION_LABELS = {
     ...AUTOMATION_LABELS,

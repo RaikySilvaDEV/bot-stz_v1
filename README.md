@@ -38,6 +38,8 @@ npm start
 
 `npm start` inicia o supervisor do projeto: tenta abrir o túnel Cloudflare Quick Tunnel e inicia o bot; reinicia os processos após saídas inesperadas. O URL `trycloudflare.com` é temporário e pode mudar. `Ctrl+C` encerra os processos iniciados pelo supervisor. Sem túnel, execute `npm run start:direct` para iniciar somente o bot e a API local.
 
+**Publicações diárias:** wallpaper às **12:00** e um item de cada armazém (CTZ e Boosters) às **12:30**, no fuso configurado. O avanço por item é salvo por armazém; reiniciar o bot não repete o envio no mesmo dia. Arquivos acima do limite do Discord são divididos em partes sequenciais.
+
 A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel e o bot precisam apontar para a mesma porta. O painel local fica em `http://127.0.0.1:3001/painel`. Para acesso externo, use HTTPS e defina `DASHBOARD_PUBLIC_URL` com a URL pública completa do painel. Quick Tunnels não garantem um endereço fixo.
 
 Se o log do `cloudflared` mostrar `Failed to refresh DNS local resolver` ou `i/o timeout`, a falha está no resolvedor DNS da máquina que hospeda o bot. No PowerShell **como Administrador dessa máquina**, verifique o adaptador ativo e configure DNS público:
