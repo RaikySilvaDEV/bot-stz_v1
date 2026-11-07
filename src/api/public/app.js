@@ -1,7 +1,7 @@
 const byId = id => document.getElementById(id);
 const pageFromStorage = localStorage.getItem('bot-dashboard-page');
 const validPages = new Set(['overview', 'services', 'automations', 'channels', 'announcements', 'config', 'store', 'payments', 'payouts', 'assistant']);
-const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], assistantMessages: [], roles: [], config: null, managedChannels: [] };
+const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
 const pageTitles = { overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', announcements: 'Avisos', config: 'Configuração', store: 'Loja', payments: 'Pagamentos', payouts: 'Repasses', assistant: 'Assistente' };
 const pageDescriptions = {
   overview: 'Acompanhe o estado do bot e encontre rapidamente o que precisa de atenção.',
@@ -591,6 +591,10 @@ function render() {
     else button.removeAttribute('aria-current');
   });
   byId('content').setAttribute('aria-busy', 'false');
+  if (state.pageError) {
+    byId('content').innerHTML = `<section class="card"><div class="section-head"><div><h2>Esta seção não carregou</h2><p class="detail">${escapeHtml(state.pageError)}</p></div></div><p class="detail">A Central continua disponível. Tente atualizar esta seção ou escolha outra opção no menu.</p><button class="primary" id="retry-page" type="button">${icon('refresh-cw')} Tentar novamente</button></section>`;
+    return;
+  }
   ({ overview: renderOverview, services: renderServices, automations: renderAutomations, channels: renderChannels,
     announcements: renderAnnouncements, config: renderConfig, store: renderStore, payments: renderPayments,
     payouts: renderPayouts, assistant: renderAssistant })[state.page](state.data);
@@ -600,25 +604,28 @@ async function refresh() {
   byId('content').setAttribute('aria-busy', 'true');
   const data = await request('/api/painel/status');
   state.data = data;
-  if (state.page === 'overview') state.commerce = await request('/api/painel/commerce');
-  if (state.page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
-  if (state.page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
-  if (state.page === 'payments') {
-    const [paymentData, mercadoPago] = await Promise.all([
-      request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')
-    ]);
-    state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
-  }
-  if (state.page === 'store') {
-    const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
-    state.commerce = commerce;
-    state.roles = roles.roles;
-    state.config = config;
-  }
-  if (state.page === 'config') state.config = await request('/api/painel/config');
-  if (state.page === 'payouts') state.payouts = await request('/api/painel/payouts');
+  state.pageError = '';
+  try { await loadPageData(state.page); }
+  catch (error) { state.pageError = error.message; }
   showApp();
   render();
+  if (state.pageError) notice(`Não foi possível carregar “${pageTitles[state.page]}”: ${state.pageError}`, true);
+}
+
+async function loadPageData(page) {
+  if (page === 'overview') state.commerce = await request('/api/painel/commerce');
+  if (page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
+  if (page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
+  if (page === 'payments') {
+    const [paymentData, mercadoPago] = await Promise.all([request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')]);
+    state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
+  }
+  if (page === 'store') {
+    const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
+    state.commerce = commerce; state.roles = roles.roles; state.config = config;
+  }
+  if (page === 'config') state.config = await request('/api/painel/config');
+  if (page === 'payouts') state.payouts = await request('/api/painel/payouts');
 }
 
 async function navigateToPage(page) {
@@ -627,24 +634,16 @@ async function navigateToPage(page) {
   localStorage.setItem('bot-dashboard-page', page);
   byId('content').setAttribute('aria-busy', 'true');
   try {
-    if (page === 'overview') state.commerce = await request('/api/painel/commerce');
-    if (page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
-    if (page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
-    if (page === 'payments') {
-      const [paymentData, mercadoPago] = await Promise.all([request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')]);
-      state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
-    }
-    if (page === 'store') {
-      const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
-      state.commerce = commerce; state.roles = roles.roles; state.config = config;
-    }
-    if (page === 'config') state.config = await request('/api/painel/config');
-    if (page === 'payouts') state.payouts = await request('/api/painel/payouts');
-    render();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    state.pageError = '';
+    await loadPageData(page);
   } catch (error) {
-    byId('content').setAttribute('aria-busy', 'false');
-    notice(error.message, true);
+    state.pageError = error.message;
+  }
+  render();
+  if (state.pageError) {
+    notice(`Não foi possível carregar “${pageTitles[page]}”: ${state.pageError}`, true);
+  } else {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
 
@@ -680,6 +679,7 @@ function updateMethodFields() {
 
 document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => navigateToPage(button.dataset.page)));
 byId('content').addEventListener('click', event => {
+  if (event.target.closest('#retry-page')) { void refresh(); return; }
   const target = event.target.closest('[data-target]')?.dataset.target;
   if (target) void navigateToPage(target);
 });
