@@ -16,7 +16,7 @@ import { criarVitrineLoja, publicarSeletorProdutos, tratarInteracaoCompras } fro
 import { tratarAdminLoja } from '../features/commerceAdmin.js';
 import { tratarInteracaoFeedback } from '../features/commerceFeedback.js';
 import { tratarComandoIa } from '../features/assistantCommands.js';
-import { iniciarAtendimentoAutomatico } from '../features/tickets.js';
+import { iniciarAtendimentoAutomatico, iniciarAjudaCompraAutomatica } from '../features/tickets.js';
 
 const ticketsEmCriacao = new Set();
 let criandoCategoriaCompras = null;
@@ -170,6 +170,9 @@ async function criarTicketPrivado(interaction, type, selectedOption = null) {
         });
         if (type === 'purchase') {
             await publicarSeletorProdutos(channel);
+            if (settings.automations.aiResponses) {
+                void iniciarAjudaCompraAutomatica(channel, interaction.user.id);
+            }
         } else {
             const ticketIntro = [
                 `Cliente: <@${interaction.user.id}>`,
