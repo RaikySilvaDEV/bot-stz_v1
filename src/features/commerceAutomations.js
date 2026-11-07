@@ -92,7 +92,7 @@ async function reconcileDeliveredOrderRoles(order, guild, now) {
         for (const role of roles) {
             if (!member.roles.cache.has(role.id)) {
                 await member.roles.add(role, `Sincronização de cargos do pedido ${order.id}`);
-                await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id });
+                await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id, paidAt: order.paidAt, expiresAt: order.entitlementExpiresAt });
             }
         }
         const deliveryRoleIds = [...new Set([...(order.deliveryRoleIds ?? []), order.deliveryRoleId, ...roles.map(role => role.id)].filter(Boolean))];
@@ -139,7 +139,7 @@ export async function handlePaidOrder(orderId, paymentDetails = {}, { forceDeliv
             for (const role of roles) {
                 if (!member.roles.cache.has(role.id)) {
                     await member.roles.add(role, `Pedido pago ${order.id}`);
-                    await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id });
+                    await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id, paidAt, expiresAt });
                 }
             }
             updated = updateOrder(order.id, { status: 'delivered', deliveredAt: new Date().toISOString(),
@@ -240,7 +240,7 @@ export async function runCommerceAutomations() {
                         if (!hasNewerAccess && member?.roles.cache.has(roleId)) {
                             await member.roles.remove(roleId, `Acesso expirado no pedido ${order.id}`);
                             const role = await targetGuild.roles.fetch(roleId).catch(() => null);
-                            if (role) await logRoleChange(targetGuild, { member, role, action: 'removal', orderId: order.id });
+                            if (role) await logRoleChange(targetGuild, { member, role, action: 'removal', orderId: order.id, paidAt: order.paidAt, expiresAt: order.entitlementExpiresAt });
                         }
                     }
                     updateOrder(order.id, { status: 'expired', roleExpiredAt: new Date().toISOString() });
