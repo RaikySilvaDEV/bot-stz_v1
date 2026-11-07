@@ -43,7 +43,7 @@ export async function responderAssistentePainel(message) {
     const context = getSafeContext();
     const answer = await generateAssistantResponse(SYSTEM_INSTRUCTION, [{
         role: 'user', content: `Contexto atual (resumo sem credenciais ou IDs pessoais):\n${JSON.stringify(context)}\n\nPergunta do administrador:\n${message}`
-    }]);
+    }], { userId: 'painel-administrativo' });
     if (!answer) throw Object.assign(new Error('Não consegui formular uma resposta agora. Tente perguntar de outro jeito.'), { status: 502 });
     return answer.slice(0, 3000);
 }

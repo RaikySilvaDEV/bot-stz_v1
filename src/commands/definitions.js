@@ -16,6 +16,13 @@ return [
         .setName('teste')
         .setDescription('Verifica se o bot está respondendo neste servidor.'),
     new SlashCommandBuilder()
+        .setName('ia')
+        .setDescription('Usa o assistente local com Ollama.')
+        .addSubcommand(sub => sub.setName('perguntar').setDescription('Envia uma pergunta à IA local.')
+            .addStringOption(option => option.setName('pergunta').setDescription('Sua pergunta (máximo 1200 caracteres)').setRequired(true).setMaxLength(1200)))
+        .addSubcommand(sub => sub.setName('status').setDescription('Mostra disponibilidade do Ollama, modelo e fila.'))
+        .addSubcommand(sub => sub.setName('ajuda').setDescription('Mostra os comandos de IA disponíveis.')),
+    new SlashCommandBuilder()
         .setName('vendas')
         .setDescription('Mostra a vitrine com imagens e botões para adicionar produtos ao carrinho.'),
     new SlashCommandBuilder()

@@ -6,6 +6,7 @@ import { getSettings } from '../repositories/settingsRepository.js';
 import { logAction } from '../services/audit.js';
 import { generateAssistantResponse, getAssistantStatus } from '../services/assistantProvider.js';
 const ultimoAtendimentoPorCanal = new Map();
+const ultimaMensagemTentadaPorCanal = new Map();
 const avisoIaIndisponivelPorCanal = new Set();
 let varreduraEmAndamento = false;
 
@@ -16,6 +17,8 @@ client.on('channelDelete', channel => {
         console.error('[tickets] Não foi possível limpar o estado do ticket removido:', error);
     }
     ultimoAtendimentoPorCanal.delete(channel.id);
+    ultimaMensagemTentadaPorCanal.delete(channel.id);
+    avisoIaIndisponivelPorCanal.delete(channel.id);
 });
 
 export function iniciarVarreduraTicketsOrfaos() {
@@ -36,8 +39,6 @@ export function iniciarVarreduraTicketsOrfaos() {
             );
 
             const ticketsNotificados = getNotifiedTicketIds();
-            const assistantStatus = settings.automations.aiResponses ? await getAssistantStatus() : null;
-
             for (const [id, canalTicket] of tickets) {
                 try {
                     const mensagens = await canalTicket.messages.fetch({ limit: 10 });
@@ -47,21 +48,24 @@ export function iniciarVarreduraTicketsOrfaos() {
                     const ultimaMsg = msgsOrdenadas[0];
 
                     if (!ultimaMsg.author.bot && settings.automations.aiResponses) {
+                        if (ultimaMensagemTentadaPorCanal.get(canalTicket.id) === ultimaMsg.id) continue;
+                        const ultimaRespostaIA = ultimoAtendimentoPorCanal.get(canalTicket.id) ?? 0;
+                        if (Date.now() - ultimaRespostaIA < 30 * 1000) continue;
+                        if (ticketsNotificados.includes(canalTicket.id)) continue;
+                        ultimaMensagemTentadaPorCanal.set(canalTicket.id, ultimaMsg.id);
+
+                        const assistantStatus = await getAssistantStatus();
                         if (!assistantStatus?.ready) {
                             if (!avisoIaIndisponivelPorCanal.has(canalTicket.id)) {
                                 avisoIaIndisponivelPorCanal.add(canalTicket.id);
-                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: o autoatendimento local está indisponível. ${assistantStatus?.detail ?? 'A equipe precisa responder manualmente.'}`);
+                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: o autoatendimento local está indisponível. ${assistantStatus.detail}`);
                                 await logAction(guild, client.user.id, 'IA local indisponível', `Canal ${canalTicket.name}`);
                             }
                             continue;
                         }
-                        const ultimaRespostaIA = ultimoAtendimentoPorCanal.get(canalTicket.id) ?? 0;
-                        if (Date.now() - ultimaRespostaIA < 30 * 1000) continue;
                         const ultimaMensagemDoBot = msgsOrdenadas.find(m => m.author.id === client.user.id);
                         const botJaRespondeuRecente = ultimaMensagemDoBot && ultimaMensagemDoBot.createdTimestamp > ultimaMsg.createdTimestamp;
                         if (!botJaRespondeuRecente) {
-                            if (ticketsNotificados.includes(canalTicket.id)) continue;
-
                             await canalTicket.sendTyping();
 
                             const promptSistema = `Você é o assistente virtual profissional da Community for FiveM.
@@ -74,7 +78,7 @@ Responda com todas as informações necessárias. Se a dúvida ultrapassar o seu
                                 respostaIA = await generateAssistantResponse(promptSistema, msgsOrdenadas.slice(0, 8).reverse().map(message => ({
                                     role: message.author.bot ? 'assistant' : 'user',
                                     content: message.content || '[mensagem com anexo]'
-                                })));
+                                })), { userId: ultimaMsg.author.id });
                             } catch (error) {
                                 console.error(`[tickets:${canalTicket.id}] IA local indisponível:`, error.message);
                                 avisoIaIndisponivelPorCanal.add(canalTicket.id);
