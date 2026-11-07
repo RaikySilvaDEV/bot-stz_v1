@@ -1,7 +1,7 @@
 const byId = id => document.getElementById(id);
 const pageFromStorage = localStorage.getItem('bot-dashboard-page');
 const validPages = new Set(['overview', 'services', 'automations', 'channels', 'announcements', 'config', 'store', 'payments', 'payouts', 'assistant']);
-const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
+const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], wallpapers: { files: [], currentDay: 1, nextDay: 1 }, assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
 const pageTitles = { overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', announcements: 'Avisos', config: 'Configuração', store: 'Loja', payments: 'Pagamentos', payouts: 'Repasses', assistant: 'Assistente' };
 const pageDescriptions = {
   overview: 'Acompanhe o estado do bot e encontre rapidamente o que precisa de atenção.',
@@ -128,11 +128,45 @@ function openAnnouncementDialog(announcement = null) {
 
 function renderAnnouncements() {
   const channel = state.data.channels.find(item => item.key === 'fivemAnnouncements');
+  const wallpaperData = state.wallpapers;
+  const schedule = state.config;
+  const hoursText = schedule?.announcementHours?.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ') ?? 'carregando';
   byId('content').innerHTML = `<section class="announcement-intro"><div class="announcement-intro-icon">${icon('megaphone')}</div><div><h2>Avisos do servidor</h2><p>Gerencie o que aparece em <strong>${escapeHtml(channel?.name ? `#${channel.name}` : 'canal FiveM configurado')}</strong>. Ao salvar, o Discord é atualizado junto com o registro local.</p></div><button class="primary" id="new-announcement" type="button">${icon('plus')} Novo aviso</button></section>
+    <section class="card announcement-schedule"><div><strong>Avisos automáticos</strong><span>${escapeHtml(hoursText)} · fuso ${escapeHtml(schedule?.timezone ?? 'America/Sao_Paulo')}</span></div><button class="tiny" data-target="config" type="button">${icon('settings-2')} Configurar horários e canais</button></section>
+    <section class="card wallpaper-manager"><div class="wallpaper-manager-head"><div><p class="eyebrow">BIBLIOTECA DE IMAGENS</p><h2>Wallpapers diários</h2><p class="detail">Envie arquivos aqui. Eles serão salvos em <code>Wallpapers</code> como <code>1.png</code>, <code>2.jpg</code>… usando a próxima sequência livre a partir do dia atual.</p></div><button id="wallpaper-upload-button" class="secondary" type="button">${icon('image')} Enviar wallpapers</button><input id="wallpaper-upload-input" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" multiple hidden></div><div class="wallpaper-upload-meta"><span>Dia atual: <strong>${wallpaperData.currentDay}/105</strong></span><span>Próximo número: <strong>${wallpaperData.nextDay ?? 'sequência completa'}</strong></span><span>${wallpaperData.files.length} imagem(ns) na pasta</span></div><p id="wallpaper-upload-progress" class="detail" aria-live="polite"></p><div class="wallpaper-grid">${wallpaperData.files.length ? wallpaperData.files.map(file => `<article class="wallpaper-tile ${file.current ? 'is-current' : ''}"><img src="${escapeHtml(file.url)}" alt="Wallpaper do dia ${file.day}" loading="lazy"><div><strong>Dia ${file.day}</strong><span>${escapeHtml(file.name)} · ${(file.size / 1048576).toFixed(1)} MiB</span>${file.current ? '<em>Próximo a publicar</em>' : ''}</div></article>`).join('') : '<p class="detail">A pasta ainda não tem wallpapers numerados.</p>'}</div></section>
     <div class="section-head"><div><h2>Avisos publicados</h2><p class="detail">${state.announcements.length} aviso(s) no catálogo.</p></div><label class="announcement-search-wrap">${icon('search')}<input id="announcement-search" type="search" placeholder="Buscar aviso…" aria-label="Buscar avisos"></label></div>
     <div id="announcement-list" class="announcement-list">${state.announcements.length ? state.announcements.map(item => `<article class="card announcement-card" data-search-row><div class="announcement-main"><div class="announcement-card-icon">${icon('file-text')}</div><div class="announcement-copy"><div class="announcement-card-heading"><h3>${escapeHtml(item.titulo)}</h3>${badge(item.imageUrl ? 'Com imagem' : 'Publicado', 'ok')}</div><p>${escapeHtml(item.texto)}</p>${item.imageUrl ? `<img class="announcement-card-image" src="${escapeHtml(item.imageUrl)}" alt="Prévia do aviso ${escapeHtml(item.titulo)}" loading="lazy">` : ''}<small>Atualizado em ${escapeHtml(new Date(item.updatedAt ?? item.createdAt).toLocaleString('pt-BR'))}</small></div></div><div class="announcement-actions"><button class="tiny edit-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('file-text')} Editar</button><button class="tiny danger delete-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('x')} Remover</button></div></article>`).join('') : `<div class="empty-state"><div class="empty-state-icon">${icon('megaphone')}</div><h3>Nenhum aviso cadastrado</h3><p>Crie seu primeiro aviso para publicar uma mensagem no canal FiveM.</p><button class="primary" id="new-announcement-empty" type="button">${icon('plus')} Criar primeiro aviso</button></div>`}</div><p id="announcement-empty-search" class="empty" hidden>Nenhum aviso corresponde à busca.</p>`;
   byId('new-announcement')?.addEventListener('click', () => openAnnouncementDialog());
   byId('new-announcement-empty')?.addEventListener('click', () => openAnnouncementDialog());
+  byId('wallpaper-upload-button')?.addEventListener('click', () => byId('wallpaper-upload-input').click());
+  byId('wallpaper-upload-input')?.addEventListener('change', async event => {
+    const files = [...event.currentTarget.files];
+    const button = byId('wallpaper-upload-button');
+    const progress = byId('wallpaper-upload-progress');
+    if (!files.length) return;
+    button.disabled = true;
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        progress.textContent = `Enviando ${index + 1}/${files.length}: ${file.name}`;
+        const response = await fetch('/api/painel/wallpapers', { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) }, body: file });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result?.erro || `Falha HTTP ${response.status}`);
+      }
+      state.wallpapers = await request('/api/painel/wallpapers');
+      renderAnnouncements();
+      notice(`${files.length} wallpaper(s) salvo(s) com numeração sequencial em Wallpapers.`);
+    } catch (error) {
+      progress.textContent = error.message;
+      notice(error.message, true);
+    } finally {
+      const input = byId('wallpaper-upload-input');
+      if (input) input.value = '';
+      const currentButton = byId('wallpaper-upload-button');
+      if (currentButton) currentButton.disabled = false;
+    }
+  });
   byId('announcement-search')?.addEventListener('input', event => {
     const query = event.currentTarget.value.trim().toLocaleLowerCase('pt-BR');
     const cards = [...document.querySelectorAll('#announcement-list [data-search-row]')];
@@ -621,7 +655,10 @@ async function refresh() {
 
 async function loadPageData(page) {
   if (page === 'overview') state.commerce = await request('/api/painel/commerce');
-  if (page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
+  if (page === 'announcements') {
+    const [announcements, wallpapers, config] = await Promise.all([request('/api/painel/announcements'), request('/api/painel/wallpapers'), request('/api/painel/config')]);
+    state.announcements = announcements.announcements; state.wallpapers = wallpapers; state.config = config;
+  }
   if (page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
   if (page === 'payments') {
     const [paymentData, mercadoPago] = await Promise.all([request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')]);
