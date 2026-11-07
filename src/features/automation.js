@@ -9,6 +9,7 @@ import {
     getStockState, getWallpaperState, saveStockState, saveWallpaperState
 } from '../repositories/stateRepository.js';
 import { getSettings } from '../repositories/settingsRepository.js';
+import { getGuildAttachmentLimitBytes, getOversizedAttachments, BYTES_PER_MIB } from '../services/attachmentLimits.js';
 import { getAutomationMessageIds, saveAutomationMessageId } from '../repositories/automationRepository.js';
 import {
     getAnnouncementHoursCompleted, getWallpaperDateCompleted,
@@ -159,7 +160,24 @@ export async function processarEnvioArmazemCincoHoras(guild, nomeArmazem, pastaA
         }
 
         const titulo = nomeArmazem === 'ctz' ? 'Armazém CTZ' : 'Armazém CTZ Boosters';
-        const anexos = nomes.map(nome => new AttachmentBuilder(path.join(pastaArmazem, nome), { name: nome }));
+        const arquivos = nomes.map(nome => {
+            const filePath = path.join(pastaArmazem, nome);
+            return { name: nome, path: filePath, size: fs.statSync(filePath).size };
+        });
+        const limiteUpload = getGuildAttachmentLimitBytes(guild.premiumTier);
+        const arquivosGrandes = getOversizedAttachments(arquivos, limiteUpload);
+        if (arquivosGrandes.length) {
+            const avisoKey = `${nomeArmazem}:${item}:limite-upload`;
+            const ultimoAviso = ultimoAvisoAssetAusente.get(avisoKey) ?? 0;
+            if (Date.now() - ultimoAviso >= 60 * 60 * 1000) {
+                const resumo = arquivosGrandes.map(file => `${file.name} (${(file.size / BYTES_PER_MIB).toFixed(1)} MiB)`).join(', ');
+                console.warn(`[armazém:${nomeArmazem}] Item ${item} não enviado: ${resumo} excede o limite de ${(limiteUpload / BYTES_PER_MIB).toFixed(0)} MiB por arquivo do servidor. Reduza os arquivos ou use links externos.`);
+                ultimoAvisoAssetAusente.set(avisoKey, Date.now());
+            }
+            return;
+        }
+
+        const anexos = arquivos.map(file => new AttachmentBuilder(file.path, { name: file.name }));
         for (let inicio = 0; inicio < anexos.length; inicio += 10) {
             const primeiraMensagem = inicio === 0;
             await canal.send({
