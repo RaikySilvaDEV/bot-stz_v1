@@ -14,7 +14,7 @@ export const PRODUCTS = [
     {
         name: 'Booster + Premium', value: 'booster_premium', channelId: '1552727902930346167',
         description: 'Dois benefícios em um: acesso aos conteúdos Premium e Booster por um preço especial.',
-        roleName: 'Premium Booster (pago)', durationDays: 5, originalPriceCents: 3500, defaultPriceCents: 1400,
+        roleName: 'Premium Booster + Server Booster', durationDays: 5, originalPriceCents: 3500, defaultPriceCents: 1400,
         emoji: '✨', imageFile: 'booster.jpg'
     }
 ];

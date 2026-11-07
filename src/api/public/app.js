@@ -366,7 +366,7 @@ function renderStore() {
       <form class="product-form" data-value="${escapeHtml(product.value)}">
         <div class="form-grid two"><div><label>Nome do produto</label><input name="name" value="${escapeHtml(product.name)}" maxlength="80" required></div><div><label>Nome do cargo exibido</label><input name="roleName" value="${escapeHtml(product.roleName)}" maxlength="100" required></div></div>
         <label>Descrição da vitrine</label><textarea name="description" maxlength="1000" rows="3" required>${escapeHtml(product.description)}</textarea>
-        <div class="form-grid three"><div><label>Cargo a entregar</label><select name="roleId" required><option value="" disabled ${product.roleId ? '' : 'selected'}>Selecione o cargo</option>${product.roleId && !state.roles.some(role => role.id === product.roleId) ? `<option value="${escapeHtml(product.roleId)}" selected>Cargo ${escapeHtml(product.roleId)} (verifique hierarquia)</option>` : ''}${state.roles.map(role => `<option value="${escapeHtml(role.id)}" ${product.roleId === role.id ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('')}</select></div><div><label>Validade (dias)</label><input name="durationDays" type="number" min="1" max="3650" value="${product.durationDays}" required></div><div><label>Estoque (vazio = ∞)</label><input name="stock" type="number" min="0" max="100000" value="${product.stock ?? ''}" placeholder="∞"></div></div>
+        <div class="form-grid three"><div><label>Cargos entregues (selecione todos)</label><select name="roleIds" multiple size="4" required>${state.roles.map(role => `<option value="${escapeHtml(role.id)}" ${(product.roleIds ?? [product.roleId].filter(Boolean)).includes(role.id) ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('')}</select><p class="detail">No computador, use Ctrl para marcar mais de um cargo. O pacote Booster + Premium libera os cargos Premium Booster e Server Booster.</p></div><div><label>Validade (dias)</label><input name="durationDays" type="number" min="1" max="3650" value="${product.durationDays}" required></div><div><label>Estoque (vazio = ∞)</label><input name="stock" type="number" min="0" max="100000" value="${product.stock ?? ''}" placeholder="∞"></div></div>
         <div class="form-grid two"><div><label>Preço promocional (R$)</label><input name="price" type="number" min="0.01" max="999999.99" step="0.01" value="${(product.priceCents / 100).toFixed(2)}" required></div><div><label>Preço original (R$)</label><input name="originalPrice" type="number" min="0.01" max="999999.99" step="0.01" value="${(product.originalPriceCents / 100).toFixed(2)}" required></div></div>
         <label>Imagem ou GIF (URL HTTPS; vazio restaura imagem incluída)</label><input name="customImageUrl" type="url" maxlength="500" value="${escapeHtml(product.customImageUrl)}" placeholder="https://…">
         <label>Instruções privadas após a compra</label><textarea name="deliveryMessage" maxlength="1500" rows="2">${escapeHtml(product.deliveryMessage)}</textarea>
@@ -400,7 +400,8 @@ function renderStore() {
     payload.priceCents = fromMoney(payload.price);
     payload.originalPriceCents = fromMoney(payload.originalPrice);
     payload.stock = payload.stock === '' ? null : Number(payload.stock);
-    payload.roleId = payload.roleId || null;
+    payload.roleIds = fields.getAll('roleIds');
+    payload.roleId = payload.roleIds[0] || null;
     delete payload.price;
     delete payload.originalPrice;
     const button = form.querySelector('button[type="submit"]');
@@ -506,7 +507,7 @@ function renderPayouts() {
   const statusLabel = { prepared: 'Preparado', submitting: 'Enviando', unknown: 'Aguardando confirmação', pending: 'Em processamento', credited: 'Creditado', rejected: 'Rejeitado' };
   byId('content').innerHTML = `
     <section class="card payment-provider-card"><div class="section-head"><div><p class="eyebrow">REPASSE PIX</p><h2>Comissão do sócio</h2></div>${badge(settings.enabled ? 'Automação ativa' : 'Automação pausada', settings.enabled ? 'ok' : 'warn')}</div>
-      <p class="detail">O percentual é aplicado ao valor de cada pedido pago, antes das taxas do Mercado Pago, com arredondamento por pedido para centavos. Preparar um repasse não movimenta dinheiro; o botão de envio pede confirmação explícita. A conta Mercado Pago precisa ter Payouts habilitado e saldo suficiente.</p>
+      <p class="detail">A divisão é feita sobre o valor líquido realmente recebido após as taxas do Mercado Pago. As taxas são calculadas pelos dados de liquidação do pagamento; vendas antigas sem esses dados ficam fora do repasse. Preparar um repasse não movimenta dinheiro; o botão de envio pede confirmação explícita.</p>
       <p class="detail">Modo: <strong>${settings.testMode ? 'Teste' : 'Produção'}</strong> · Destino Pix: <strong>${settings.recipientConfigured ? escapeHtml(settings.recipientMasked) : 'não cadastrado'}</strong> · ${automation?.operational ? 'Configuração pronta para uso.' : 'Confira os requisitos antes de ativar.'}</p>
       <button id="toggle-payout-automation" class="${settings.enabled ? 'secondary' : 'primary'}" ${!settings.enabled && !automation?.ready ? 'disabled' : ''}>${settings.enabled ? 'Pausar repasses' : 'Ativar repasses'}</button>
       <div class="grid two">${checks.map(([label, ready]) => `<div class="status-row">${badge(ready ? 'Pronto' : 'Pendente', ready ? 'ok' : 'warn')}<span>${escapeHtml(label)}</span></div>`).join('')}</div>
@@ -520,12 +521,14 @@ function renderPayouts() {
       </section>
       <section class="card"><h2>Conexão do Mercado Pago</h2><form id="payout-secrets-form"><label for="payout-access-token">Access Token da aplicação Payouts</label><input id="payout-access-token" type="password" autocomplete="new-password" placeholder="${settings.accessTokenReady ? 'Configurado; vazio mantém o atual' : 'Credencial de teste para começar'}">
         <label class="toggle-card" for="payout-test-mode"><input id="payout-test-mode" type="checkbox" ${settings.testMode ? 'checked' : ''}> Usar modo de teste</label>
+        <label for="payout-test-max">Limite total por rascunho no modo de teste (R$)</label><input id="payout-test-max" type="number" min="1" max="100000" step="0.01" value="${(Number(settings.testMaxCents ?? 1000) / 100).toFixed(2)}"><p class="detail">Esse limite vale somente para chamadas de teste com X-test-token. Em produção, configure a chave de assinatura abaixo.</p>
         <label for="payout-private-key-path">Caminho do arquivo da chave privada Ed25519</label><input id="payout-private-key-path" type="text" maxlength="1000" placeholder="${settings.privateSigningKeyReady ? 'Configurado; vazio mantém o atual' : 'Obrigatório somente em produção'}">
-        <p class="detail">A chave privada de produção deve ficar fora do repositório; envie a chave pública ao Mercado Pago para habilitar a assinatura. Mantenha o modo de teste enquanto valida a conta.</p>
+        <p class="detail">Para produção, gere um par Ed25519. Cadastre a chave pública com a equipe de Integrações do Mercado Pago e informe aqui o caminho absoluto da chave privada. Ela deve permanecer fora do projeto.</p>
         <button class="primary" type="submit">Salvar conexão</button></form>
       </section>
     </div>
-    <div class="grid three"><article class="card"><h2>Pedidos pagos elegíveis</h2><div class="metric">${calculation.orderCount ?? 0}</div></article><article class="card"><h2>Base bruta elegível</h2><div class="metric">${money(calculation.grossCents ?? 0)}</div></article><article class="card"><h2>Repasse calculado</h2><div class="metric">${money(calculation.totalCents ?? 0)}</div><p class="detail">${Number(settings.sharePercent ?? 0).toFixed(2)}% sobre cada pedido.</p></article></div>
+    <div class="grid two"><article class="card"><h2>Valor bruto elegível</h2><div class="metric">${money(calculation.grossCents ?? 0)}</div></article><article class="card"><h2>Taxas do Mercado Pago</h2><div class="metric">${money(calculation.feesCents ?? 0)}</div></article><article class="card"><h2>Líquido recebido</h2><div class="metric">${money(calculation.netCents ?? 0)}</div><p class="detail">Base para a divisão após as taxas.</p></article><article class="card"><h2>Repasse do sócio · ${Number(settings.sharePercent ?? 0).toFixed(2)}%</h2><div class="metric">${money(calculation.partnerShareCents ?? calculation.totalCents ?? 0)}</div><p class="detail">${calculation.orderCount ?? 0} pedidos elegíveis.</p></article><article class="card"><h2>Sua parte líquida</h2><div class="metric">${money(calculation.ownerShareCents ?? 0)}</div><p class="detail">Saldo líquido restante depois do repasse do sócio.</p></article></div>
+    ${(calculation.missingNetAmountCount ?? 0) ? `<section class="card"><p class="detail">${calculation.missingNetAmountCount} venda(s) antiga(s) não têm o líquido/taxas registrados e foram excluídas do cálculo. Os próximos pagamentos aprovados serão registrados com os dados de liquidação recebidos do Mercado Pago.</p></section>` : ''}
     <section class="card"><div class="section-head"><div><h2>Preparar um repasse</h2><p class="detail">O valor calculado será reservado contra pedidos já incluídos em outros repasses.</p></div><button id="create-payout-draft" class="primary" ${!calculation.orderCount || !settings.recipientConfigured ? 'disabled' : ''}>Preparar repasse</button></div>
       <p class="detail">Antes de enviar, confirme o valor, a chave Pix mascarada e o modo de execução. O Mercado Pago pode deixar a transferência pendente; só marcamos como creditada após consultar o estado final.</p>
     </section>
@@ -548,7 +551,7 @@ function renderPayouts() {
     event.preventDefault();
     const button = event.currentTarget.querySelector('button[type="submit"]'); button.disabled = true;
     try {
-      await request('/api/painel/payouts/secrets', { method: 'PUT', body: JSON.stringify({ accessToken: byId('payout-access-token').value.trim(), testMode: byId('payout-test-mode').checked, privateKeyPath: byId('payout-private-key-path').value.trim() }) });
+      await request('/api/painel/payouts/secrets', { method: 'PUT', body: JSON.stringify({ accessToken: byId('payout-access-token').value.trim(), testMode: byId('payout-test-mode').checked, testMaxCents: Math.round(Number(byId('payout-test-max').value) * 100), privateKeyPath: byId('payout-private-key-path').value.trim() }) });
       await refresh(); notice('Conexão Payouts salva no .env local.');
     } catch (error) { notice(error.message, true); button.disabled = false; }
   });

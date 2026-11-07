@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/process/supervisor.js",
     "start:direct": "node index.js",
+    "payouts:keygen": "node scripts/generate-payout-signing-key.js",
     "check": "node scripts/check-syntax.js",
     "test": "node --test"
   },

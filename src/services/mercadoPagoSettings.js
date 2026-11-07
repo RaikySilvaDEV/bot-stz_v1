@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const ENV_FILE = path.join(PROJECT_ROOT, '.env');
-const KEYS = ['MERCADO_PAGO_ACCESS_TOKEN', 'MERCADO_PAGO_WEBHOOK_SECRET', 'MERCADO_PAGO_WEBHOOK_URL', 'MERCADO_PAGO_PAYOUTS_WEBHOOK_URL', 'MERCADO_PAGO_PAYOUTS_ACCESS_TOKEN', 'MERCADO_PAGO_PAYOUTS_TEST_MODE', 'MERCADO_PAGO_PAYOUTS_PRIVATE_KEY_PATH', 'PARTNER_PAYOUTS_ENCRYPTION_KEY'];
+const KEYS = ['MERCADO_PAGO_ACCESS_TOKEN', 'MERCADO_PAGO_WEBHOOK_SECRET', 'MERCADO_PAGO_WEBHOOK_URL', 'MERCADO_PAGO_PAYOUTS_WEBHOOK_URL', 'MERCADO_PAGO_PAYOUTS_ACCESS_TOKEN', 'MERCADO_PAGO_PAYOUTS_TEST_MODE', 'MERCADO_PAGO_PAYOUTS_TEST_MAX_CENTS', 'MERCADO_PAGO_PAYOUTS_PRIVATE_KEY_PATH', 'PARTNER_PAYOUTS_ENCRYPTION_KEY'];
 
 export function getMercadoPagoSettingsStatus() {
     return {
@@ -16,6 +16,7 @@ export function getMercadoPagoSettingsStatus() {
         payoutsWebhookUrl: process.env.MERCADO_PAGO_PAYOUTS_WEBHOOK_URL?.trim() || '',
         payoutsAccessTokenConfigured: Boolean(process.env.MERCADO_PAGO_PAYOUTS_ACCESS_TOKEN?.trim()),
         payoutsTestMode: process.env.MERCADO_PAGO_PAYOUTS_TEST_MODE !== 'false',
+        payoutsTestMaxCents: Number.parseInt(process.env.MERCADO_PAGO_PAYOUTS_TEST_MAX_CENTS ?? '1000', 10),
         payoutsPrivateKeyPathConfigured: Boolean(process.env.MERCADO_PAGO_PAYOUTS_PRIVATE_KEY_PATH?.trim()),
         payoutsEncryptionReady: Boolean(process.env.PARTNER_PAYOUTS_ENCRYPTION_KEY?.trim()),
         ready: Boolean(process.env.MERCADO_PAGO_ACCESS_TOKEN?.trim() &&
@@ -31,6 +32,7 @@ export function saveMercadoPagoSettings(input) {
         MERCADO_PAGO_PAYOUTS_WEBHOOK_URL: process.env.MERCADO_PAGO_PAYOUTS_WEBHOOK_URL?.trim() ?? '',
         MERCADO_PAGO_PAYOUTS_ACCESS_TOKEN: process.env.MERCADO_PAGO_PAYOUTS_ACCESS_TOKEN?.trim() ?? '',
         MERCADO_PAGO_PAYOUTS_TEST_MODE: process.env.MERCADO_PAGO_PAYOUTS_TEST_MODE?.trim() || 'true',
+        MERCADO_PAGO_PAYOUTS_TEST_MAX_CENTS: process.env.MERCADO_PAGO_PAYOUTS_TEST_MAX_CENTS?.trim() || '1000',
         MERCADO_PAGO_PAYOUTS_PRIVATE_KEY_PATH: process.env.MERCADO_PAGO_PAYOUTS_PRIVATE_KEY_PATH?.trim() ?? '',
         PARTNER_PAYOUTS_ENCRYPTION_KEY: process.env.PARTNER_PAYOUTS_ENCRYPTION_KEY?.trim() ?? ''
     };
@@ -54,6 +56,12 @@ export function saveMercadoPagoSettings(input) {
     if (input.payoutsTestMode !== undefined) {
         if (typeof input.payoutsTestMode !== 'boolean') throw new TypeError('O modo de teste Payouts precisa ser verdadeiro ou falso.');
         values.MERCADO_PAGO_PAYOUTS_TEST_MODE = String(input.payoutsTestMode);
+    }
+    if (input.payoutsTestMaxCents !== undefined) {
+        if (!Number.isSafeInteger(input.payoutsTestMaxCents) || input.payoutsTestMaxCents < 100 || input.payoutsTestMaxCents > 10_000_000) {
+            throw new TypeError('O limite de teste deve ficar entre R$ 1,00 e R$ 100.000,00.');
+        }
+        values.MERCADO_PAGO_PAYOUTS_TEST_MAX_CENTS = String(input.payoutsTestMaxCents);
     }
     if (values.MERCADO_PAGO_ACCESS_TOKEN.length > 1000 || values.MERCADO_PAGO_WEBHOOK_SECRET.length > 1000) {
         throw new TypeError('A credencial excede o tamanho permitido.');

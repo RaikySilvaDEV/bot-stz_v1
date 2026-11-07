@@ -66,8 +66,9 @@ export function calculatePartnerShare(orders, shareBps, payouts) {
     const claimed = new Set((payouts ?? []).filter(payout => ACTIVE_STATES.has(payout.status) || FINAL_CREDITED.has(payout.status))
         .flatMap(payout => payout.orderIds ?? []));
     const eligible = (orders ?? []).filter(order => order?.paidAt && order.status !== 'refunded' && !claimed.has(order.id) &&
-        Number.isSafeInteger(order.amountCents) && order.amountCents > 0);
-    const shares = eligible.map(order => ({ orderId: order.id, amountCents: Math.round(order.amountCents * shareBps / 10000) }))
+        Number.isSafeInteger(order.amountCents) && order.amountCents > 0 &&
+        (order.provider !== 'mercadoPago' || (Number.isSafeInteger(order.netAmountCents) && order.netAmountCents >= 0)));
+    const shares = eligible.map(order => ({ orderId: order.id, amountCents: Math.round((order.provider === 'mercadoPago' ? order.netAmountCents : order.amountCents) * shareBps / 10000) }))
         .filter(share => share.amountCents > 0);
     return {
         orderCount: shares.length,
@@ -80,7 +81,14 @@ export function calculatePartnerShare(orders, shareBps, payouts) {
 export function getPartnerPayoutDashboard() {
     const state = getPartnerPayoutState();
     const commerce = getCommerceConfig();
-    const calc = calculatePartnerShare(getOrders(), state.shareBps, state.payouts);
+    const orders = getOrders();
+    const calc = calculatePartnerShare(orders, state.shareBps, state.payouts);
+    const eligibleOrders = orders.filter(order => Object.hasOwn(calc.orderShares, order.id));
+    const grossCents = eligibleOrders.reduce((sum, order) => sum + order.amountCents, 0);
+    const netCents = eligibleOrders.reduce((sum, order) => sum + (order.provider === 'mercadoPago' ? order.netAmountCents : order.amountCents), 0);
+    const missingNetAmountCount = orders.filter(order => order?.provider === 'mercadoPago' && order?.paidAt && order.status !== 'refunded' &&
+        !calc.orderShares[order.id] && !state.payouts.some(payout => (payout.orderIds ?? []).includes(order.id) &&
+            (ACTIVE_STATES.has(payout.status) || FINAL_CREDITED.has(payout.status)))).length;
     const encryptedKeyExists = Boolean(state.recipient?.encryptedKey);
     let keyConfigured = false;
     try { encryptionKey(); keyConfigured = true; } catch { /* report setup requirement only */ }
@@ -93,11 +101,14 @@ export function getPartnerPayoutDashboard() {
             encryptionReady: keyConfigured,
             accessTokenReady: Boolean(process.env.MERCADO_PAGO_PAYOUTS_ACCESS_TOKEN?.trim()),
             testMode: process.env.MERCADO_PAGO_PAYOUTS_TEST_MODE !== 'false',
+            testMaxCents: Number.parseInt(process.env.MERCADO_PAGO_PAYOUTS_TEST_MAX_CENTS ?? '1000', 10),
             privateSigningKeyReady: signingKeyPathSafe(),
             webhookReady: validWebhookUrl(process.env.MERCADO_PAGO_PAYOUTS_WEBHOOK_URL) && Boolean(process.env.MERCADO_PAGO_WEBHOOK_SECRET?.trim()),
             enabled: commerce.automations.partnerPayouts === true
         },
-        calculation: { ...calc, eligibleOrderCount: getOrders().filter(order => order?.paidAt && order.status !== 'refunded').length },
+        calculation: { ...calc, grossCents, netCents, feesCents: grossCents - netCents, partnerShareCents: calc.totalCents,
+            ownerShareCents: Math.max(0, netCents - calc.totalCents), missingNetAmountCount,
+            eligibleOrderCount: orders.filter(order => order?.paidAt && order.status !== 'refunded').length },
         payouts: state.payouts.slice(-100).reverse().map(safePayout)
     };
 }
@@ -179,6 +190,14 @@ function payoutBody(payout) {
 export async function sendPartnerPayout(id) {
     const payout = getPartnerPayout(id);
     if (!payout || !['prepared', 'unknown'].includes(payout.status)) throw Object.assign(new Error('Repasse não encontrado ou não está pronto para envio.'), { status: 404 });
+    const ordersById = new Map(getOrders().map(order => [order.id, order]));
+    const settlementStillMatches = (payout.orderIds ?? []).every(orderId => {
+        const order = ordersById.get(orderId);
+        const baseCents = order?.provider === 'mercadoPago' ? order.netAmountCents : order?.amountCents;
+        return order && order.paidAt && order.status !== 'refunded' && Number.isSafeInteger(baseCents) && baseCents >= 0 &&
+            payout.orderShares?.[orderId] === Math.round(baseCents * payout.shareBps / 10000);
+    });
+    if (!settlementStillMatches) throw Object.assign(new Error('Este rascunho não corresponde aos valores líquidos/taxas atuais. Não o envie; prepare um novo repasse com os dados de liquidação atualizados.'), { status: 409 });
     if (sendsInProgress.has(id)) throw Object.assign(new Error('Este repasse já está sendo enviado.'), { status: 409 });
     if (!getCommerceConfig().automations.partnerPayouts) throw Object.assign(new Error('Ative primeiro a automação de repasses no painel.'), { status: 409 });
     const { token, body } = payoutBody(payout);

@@ -15,7 +15,7 @@ import {
     COMMERCE_AUTOMATIONS, createCommerceProduct, getCommerceConfig, getCommerceProduct, getCommerceProducts,
     removeCommerceProduct, setCommerceAutomation, setProductActive,
     setProductDeliveryLink, setProductDeliveryMessage, setProductDetails,
-    setProductImage, resetProductImage, setProductRole, setProductStock, createCoupon, removeCoupon,
+    setProductImage, resetProductImage, setProductRole, setProductRoles, setProductStock, createCoupon, removeCoupon,
     saveStorefrontReference
 } from '../repositories/commerceRepository.js';
 import { getProductPriceCents, removeProductPrice, setProductPriceCents } from '../repositories/productCatalogRepository.js';
@@ -422,6 +422,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const settings = saveMercadoPagoSettings({
                 payoutsAccessToken: body?.accessToken,
                 payoutsTestMode: body?.testMode,
+                payoutsTestMaxCents: body?.testMaxCents,
                 payoutsPrivateKeyPath: body?.privateKeyPath
             });
             return responder(res, 200, { settings }), true;
@@ -451,7 +452,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const body = await readJson(req);
             const roleId = typeof body?.roleId === 'string' && body.roleId ? body.roleId : null;
             if (!roleId) return responder(res, 400, { erro: 'Selecione o cargo do Discord que será entregue automaticamente após o pagamento.' }), true;
-            if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Cargo inválido, gerenciado ou acima do cargo do bot. Mova o cargo para baixo do cargo do bot.' }), true;
+            if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Cargo inválido, gerenciado ou acima do cargo do bot.' }), true;
             const priceCents = Number(body?.priceCents);
             const originalPriceCents = Number(body?.originalPriceCents);
             const stock = body?.stock === null || body?.stock === '' || body?.stock === undefined ? null : Number(body.stock);
@@ -481,9 +482,9 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const priceCents = Number(body?.priceCents);
             if (!Number.isSafeInteger(priceCents) || priceCents < 1 || priceCents > 99_999_999) return responder(res, 400, { erro: 'Preço promocional inválido.' }), true;
             if (stock !== null && (!Number.isSafeInteger(stock) || stock < 0 || stock > 100000)) return responder(res, 400, { erro: 'Estoque precisa ser ilimitado ou entre 0 e 100000.' }), true;
-            const roleId = typeof body?.roleId === 'string' && body.roleId ? body.roleId : null;
-            if (!roleId) return responder(res, 400, { erro: 'Selecione o cargo do Discord que será entregue automaticamente após o pagamento.' }), true;
-            if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Cargo inválido, gerenciado ou acima do cargo do bot. Mova o cargo para baixo do cargo do bot.' }), true;
+            const roleIds = Array.isArray(body?.roleIds) ? body.roleIds : [body?.roleId].filter(Boolean);
+            if (!roleIds.length || roleIds.length > 5) return responder(res, 400, { erro: 'Selecione de 1 a 5 cargos que serão entregues ao pagar.' }), true;
+            for (const roleId of roleIds) if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Um dos cargos é inválido, gerenciado ou está acima do cargo do bot.' }), true;
             const imageUrl = String(body?.customImageUrl ?? '').trim();
             if (body?.imageMode !== 'builtin' && imageUrl) {
                 let parsed;
@@ -499,7 +500,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             setProductDetails(value, body);
             setProductPriceCents(value, priceCents);
             setProductStock(value, stock);
-            setProductRole(value, roleId);
+            setProductRoles(value, roleIds);
             setProductDeliveryMessage(value, body?.deliveryMessage ?? '');
             setProductDeliveryLink(value, body?.deliveryLink ?? '');
             if (body?.imageMode === 'builtin' || !imageUrl) resetProductImage(value);
