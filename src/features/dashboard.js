@@ -31,11 +31,12 @@ const ALL_AUTOMATION_LABELS = {
     ...Object.fromEntries(Object.entries(COMMERCE_AUTOMATION_LABELS).map(([key, label]) => [`store_${key}`, `Loja · ${label}`]))
 };
 const CHANNEL_LABELS = {
-    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets',
-    ticketPanel: 'Painel de tickets', verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers',
+    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets de suporte',
+    purchaseCategory: 'Categoria de tickets de compra', ticketPanel: 'Painel de tickets de suporte', purchasePanel: 'Painel de compras',
+    verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers',
     suggestions: 'Sugestões', feedback: 'Avaliações de clientes', purchaseStatus: 'Status de compras', supportNotices: 'Avisos de suporte',
     roleNews: 'Novidades de cargos', precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ',
-    stockBoosters: 'Armazém Boosters', audit: 'Auditoria'
+    stockBoosters: 'Armazém Boosters', roleLogs: 'Registros de cargos', audit: 'Auditoria'
 };
 
 function uptimeText() {
@@ -92,7 +93,7 @@ async function collectStatus(guild) {
     const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
     const channelStatus = Object.entries(settings.channels).map(([key, id]) => {
         const channel = id ? channels.get(id) : null;
-        const validType = key === 'supportCategory'
+        const validType = ['supportCategory', 'purchaseCategory'].includes(key)
             ? channel?.type === ChannelType.GuildCategory
             : key === 'audit' ? Boolean(channel?.isTextBased()) : Boolean(channel?.isTextBased());
         return { key, id, channel, ready: Boolean(channel && validType) };

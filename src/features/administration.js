@@ -21,10 +21,12 @@ import { getFeedback } from '../repositories/feedbackRepository.js';
 import { getProductPrices } from '../repositories/productCatalogRepository.js';
 
 const CHANNEL_LABELS = {
-    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets', ticketPanel: 'Painel de tickets',
+    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets de suporte',
+    purchaseCategory: 'Categoria de tickets de compra', ticketPanel: 'Painel de tickets de suporte', purchasePanel: 'Painel de compras',
     verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers', suggestions: 'Sugestões',
     purchaseStatus: 'Status de compras', supportNotices: 'Avisos de suporte', roleNews: 'Novidades de cargos',
-    precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ', stockBoosters: 'Armazém CTZ Boosters', audit: 'Logs administrativos'
+    precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ', stockBoosters: 'Armazém CTZ Boosters',
+    roleLogs: 'Registros de cargos', audit: 'Logs administrativos'
 };
 const AUTOMATION_LABELS = { announcements: 'Avisos agendados', wallpapers: 'Wallpapers diários', stock: 'Armazéns a cada 5 horas', aiResponses: 'Atendimento automático por IA' };
 const CHANNEL_CHOICES = Object.entries(CHANNEL_LABELS).map(([value, name]) => ({ name, value }));
@@ -142,8 +144,8 @@ export async function tratarInteracaoAdministracao(interaction) {
     } else if (subcommand === 'canal') {
         const key = interaction.options.getString('tipo');
         const channel = interaction.options.getChannel('canal');
-        if (key === 'supportCategory' ? channel.type !== ChannelType.GuildCategory : !channel.isTextBased()) {
-            await interaction.reply({ content: key === 'supportCategory' ? 'Escolha uma categoria do servidor.' : 'Escolha um canal de texto.' , flags: MessageFlags.Ephemeral });
+        if (['supportCategory', 'purchaseCategory'].includes(key) ? channel.type !== ChannelType.GuildCategory : !channel.isTextBased()) {
+            await interaction.reply({ content: ['supportCategory', 'purchaseCategory'].includes(key) ? 'Escolha uma categoria do servidor.' : 'Escolha um canal de texto.' , flags: MessageFlags.Ephemeral });
             return true;
         }
         const settings = updateSettings({ channels: { [key]: channel.id } });

@@ -207,8 +207,15 @@ function renderConfig() {
   const config = state.config;
   if (!config) { byId('content').innerHTML = '<div class="card">Carregando configurações…</div>'; return; }
   const channelLabels = Object.fromEntries((state.data.channels ?? []).map(channel => [channel.key, channel.label]));
+  const ticketPanels = config.ticketPanels;
+  const supportOptionsText = ticketPanels.support.options.map(option => [option.label, option.description ?? '', option.value, option.emoji ?? ''].join(' | ')).join('\n');
+  const collectTicketPanels = form => ({
+    support: { title: form.elements.supportTitle.value, description: form.elements.supportDescription.value, placeholder: form.elements.supportPlaceholder.value, options: form.elements.supportOptions.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => { const [label, description, value, emoji] = line.split('|').map(item => item.trim()); return { label, description, value, emoji }; }) },
+    purchase: { title: form.elements.purchaseTitle.value, description: form.elements.purchaseDescription.value },
+    maintenance: { title: form.elements.maintenanceTitle.value, message: form.elements.maintenanceMessage.value }
+  });
   const selectFor = (key, id) => {
-    const category = key === 'supportCategory';
+    const category = ['supportCategory', 'purchaseCategory'].includes(key);
     const options = config.availableChannels.filter(channel => category ? channel.type === 'category' : channel.type === 'text');
     return `<div class="config-channel"><label>${escapeHtml(channelLabels[key] ?? key)}</label><select name="channel:${escapeHtml(key)}"><option value="">Desativado</option>${options.map(channel => `<option value="${escapeHtml(channel.id)}" ${id === channel.id ? 'selected' : ''}>#${escapeHtml(channel.name)}</option>`).join('')}</select></div>`;
   };
@@ -217,7 +224,18 @@ function renderConfig() {
     <section class="card"><div class="form-grid three"><div><label for="config-timezone">Fuso IANA</label><input id="config-timezone" name="timezone" value="${escapeHtml(config.timezone)}" placeholder="America/Sao_Paulo" required></div><div><label for="config-hours">Horários dos avisos</label><input id="config-hours" name="hours" value="${config.announcementHours.join(', ')}" placeholder="9, 15, 21" required><p class="detail">Horas inteiras de 0 a 23, separadas por vírgula.</p></div><div class="toggle-card"><label for="config-mentions">Permitir @everyone automático</label><input id="config-mentions" name="mentions" type="checkbox" ${config.everyoneMentions ? 'checked' : ''}><p class="detail">Controla menções enviadas pelas rotinas automáticas.</p></div></div></section>
     <div class="section-head"><div><h2>Canais do servidor</h2><p class="detail">Escolha um canal compatível ou selecione “Desativado”.</p></div></div>
     <section class="card config-channels">${Object.entries(config.channels).map(([key, id]) => selectFor(key, id)).join('')}</section>
-    <div class="section-head"><button class="primary" type="submit">Salvar configurações</button></div>
+    <div class="section-head"><div><h2>Painéis de tickets</h2><p class="detail">Compras e atendimento usam painéis separados; configure aqui os textos e as opções do menu.</p></div></div>
+    <section class="card"><div class="form-grid two">
+      <div><label for="support-title">Título do painel de suporte</label><input id="support-title" name="supportTitle" maxlength="100" value="${escapeHtml(ticketPanels.support.title)}" required></div>
+      <div><label for="support-placeholder">Texto do menu de suporte</label><input id="support-placeholder" name="supportPlaceholder" maxlength="150" value="${escapeHtml(ticketPanels.support.placeholder)}" required></div>
+      <div class="full"><label for="support-description">Descrição do painel de suporte</label><textarea id="support-description" name="supportDescription" maxlength="1000" rows="3" required>${escapeHtml(ticketPanels.support.description)}</textarea></div>
+      <div class="full"><label for="support-options">Opções do menu (uma por linha: Nome | Descrição | código | emoji)</label><textarea id="support-options" name="supportOptions" rows="6" required>${escapeHtml(supportOptionsText)}</textarea><p class="detail">Máximo de 25 opções. Exemplo: Suporte técnico | Ajuda com erros | tecnico | 🛠️</p></div>
+      <div><label for="purchase-title">Título do painel de compras</label><input id="purchase-title" name="purchaseTitle" maxlength="100" value="${escapeHtml(ticketPanels.purchase.title)}" required></div>
+      <div class="full"><label for="purchase-description">Descrição do painel de compras</label><textarea id="purchase-description" name="purchaseDescription" maxlength="1000" rows="3" required>${escapeHtml(ticketPanels.purchase.description)}</textarea></div>
+    </div></section>
+    <div class="section-head"><div><h2>Aviso de manutenção</h2><p class="detail">Edite o texto e publique no canal de avisos configurado.</p></div></div>
+    <section class="card"><div class="form-grid two"><div><label for="maintenance-title">Título do aviso</label><input id="maintenance-title" name="maintenanceTitle" maxlength="100" value="${escapeHtml(ticketPanels.maintenance.title)}" required></div><div class="full"><label for="maintenance-message">Mensagem</label><textarea id="maintenance-message" name="maintenanceMessage" maxlength="1000" rows="3" required>${escapeHtml(ticketPanels.maintenance.message)}</textarea></div></div><button class="primary" id="announce-maintenance" type="button">Publicar aviso de manutenção</button></section>
+    <div class="section-head"><button class="primary" type="submit">Salvar configurações</button><button class="secondary" id="publish-ticket-panels" type="button">Atualizar painéis no Discord</button></div>
   </form>`;
   byId('config-form').addEventListener('submit', async event => {
     event.preventDefault();
@@ -227,11 +245,40 @@ function renderConfig() {
     const channels = Object.fromEntries([...form.querySelectorAll('[name^="channel:"]')].map(select => [select.name.slice(8), select.value || null]));
     const button = form.querySelector('button[type="submit"]'); button.disabled = true;
     try {
-      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ timezone: form.elements.timezone.value.trim(), announcementHours: hoursRaw.map(Number), everyoneMentions: form.elements.mentions.checked, channels }) });
+      const ticketPanels = collectTicketPanels(form);
+      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ timezone: form.elements.timezone.value.trim(), announcementHours: hoursRaw.map(Number), everyoneMentions: form.elements.mentions.checked, channels, ticketPanels }) });
       const [status, updated] = await Promise.all([request('/api/painel/status'), request('/api/painel/config')]);
       state.data = status; state.config = updated;
       render(); notice('Configurações gerais salvas.');
     } catch (error) { notice(error.message, true); button.disabled = false; }
+  });
+  byId('publish-ticket-panels').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const form = byId('config-form');
+      const ticketPanels = collectTicketPanels(form);
+      const channels = Object.fromEntries([...form.querySelectorAll('[name^="channel:"]')].map(select => [select.name.slice(8), select.value || null]));
+      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ ticketPanels, channels }) });
+      await request('/api/painel/tickets/publish', { method: 'POST', body: '{}' });
+      state.config = await request('/api/painel/config');
+      render(); notice('Painéis de suporte e compras publicados/atualizados no Discord.');
+    } catch (error) { notice(error.message, true); }
+    finally { button.disabled = false; }
+  });
+  byId('announce-maintenance').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const form = byId('config-form');
+      const ticketPanels = collectTicketPanels(form);
+      const channels = Object.fromEntries([...form.querySelectorAll('[name^="channel:"]')].map(select => [select.name.slice(8), select.value || null]));
+      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ ticketPanels: { maintenance: ticketPanels.maintenance }, channels }) });
+      const result = await request('/api/painel/maintenance/announce', { method: 'POST', body: '{}' });
+      const channel = config.availableChannels.find(item => item.id === config.channels.supportNotices);
+      notice(`Aviso publicado em #${channel?.name ?? 'avisos'}.`);
+    } catch (error) { notice(error.message, true); }
+    finally { button.disabled = false; }
   });
 }
 

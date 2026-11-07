@@ -29,6 +29,7 @@ export function iniciarVarreduraTicketsOrfaos() {
             const tickets = guild.channels.cache.filter(c =>
                 c && c.type === ChannelType.GuildText &&
                 c.parentId === settings.channels.supportCategory &&
+                !c.topic?.includes('ticket-type:compra') &&
                 !CANAIS_IGNORADOS_SUPORTE.includes(c.id)
             );
 

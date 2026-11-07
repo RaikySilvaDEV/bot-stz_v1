@@ -1,5 +1,7 @@
-﻿import { AttachmentBuilder } from 'discord.js';
+import { AttachmentBuilder } from 'discord.js';
 import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { client } from '../client.js';
 import { PATHS, GUILD_ID } from '../config/constants.js';
@@ -18,6 +20,54 @@ import {
 
 const ultimasMensagensLoop = new Map(Object.entries(getAutomationMessageIds()));
 const ultimoAvisoAssetAusente = new Map();
+
+function formatarTamanho(bytes) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+async function dividirArquivo(arquivo, pastaTemporaria, nomeOriginal, tamanhoMaximoParte) {
+    const tamanho = (await fsPromises.stat(arquivo)).size;
+    const quantidade = Math.ceil(tamanho / tamanhoMaximoParte);
+    const nomesPartes = [];
+    let indiceParte = 0;
+    let bytesNaParte = 0;
+    let handle = null;
+
+    try {
+        for await (const bloco of fs.createReadStream(arquivo)) {
+            let deslocamento = 0;
+            while (deslocamento < bloco.length) {
+                if (!handle) {
+                    indiceParte += 1;
+                    bytesNaParte = 0;
+                    const nomeParte = `${nomeOriginal}.parte-${String(indiceParte).padStart(3, '0')}`;
+                    nomesPartes.push(nomeParte);
+                    handle = await fsPromises.open(path.join(pastaTemporaria, nomeParte), 'w');
+                }
+                const quantidadeEscrita = Math.min(tamanhoMaximoParte - bytesNaParte, bloco.length - deslocamento);
+                let escrito = 0;
+                while (escrito < quantidadeEscrita) {
+                    const resultado = await handle.write(bloco, deslocamento + escrito, quantidadeEscrita - escrito);
+                    escrito += resultado.bytesWritten;
+                }
+                deslocamento += quantidadeEscrita;
+                bytesNaParte += quantidadeEscrita;
+                if (bytesNaParte === tamanhoMaximoParte) {
+                    await handle.close();
+                    handle = null;
+                }
+            }
+        }
+    } finally {
+        await handle?.close();
+    }
+    return { nomesPartes, quantidade, tamanho };
+}
+
+function instrucaoJuntarPartes(nomeOriginal, nomesPartes) {
+    const partes = nomesPartes.map(nome => `"${nome}"`).join('+');
+    return `No Windows, baixe todas as partes na mesma pasta e execute no CMD: \`copy /b ${partes} "${nomeOriginal}"\``;
+}
 
 export async function removerAnuncioParceriaAntigo() {
     const canal = await client.channels.fetch(getSettings().channels.partnerships).catch(() => null);
@@ -165,26 +215,35 @@ export async function processarEnvioArmazemCincoHoras(guild, nomeArmazem, pastaA
             return { name: nome, path: filePath, size: fs.statSync(filePath).size };
         });
         const limiteUpload = getGuildAttachmentLimitBytes(guild.premiumTier);
+        const tamanhoMaximoParte = Math.max(BYTES_PER_MIB, limiteUpload - BYTES_PER_MIB);
         const arquivosGrandes = getOversizedAttachments(arquivos, limiteUpload);
-        if (arquivosGrandes.length) {
-            const avisoKey = `${nomeArmazem}:${item}:limite-upload`;
-            const ultimoAviso = ultimoAvisoAssetAusente.get(avisoKey) ?? 0;
-            if (Date.now() - ultimoAviso >= 60 * 60 * 1000) {
-                const resumo = arquivosGrandes.map(file => `${file.name} (${(file.size / BYTES_PER_MIB).toFixed(1)} MiB)`).join(', ');
-                console.warn(`[armazém:${nomeArmazem}] Item ${item} não enviado: ${resumo} excede o limite de ${(limiteUpload / BYTES_PER_MIB).toFixed(0)} MiB por arquivo do servidor. Reduza os arquivos ou use links externos.`);
-                ultimoAvisoAssetAusente.set(avisoKey, Date.now());
-            }
-            return;
-        }
+        await canal.send({
+            content: `📦 **[${titulo}] • Item #${item}**
 
-        const anexos = arquivos.map(file => new AttachmentBuilder(file.path, { name: file.name }));
-        for (let inicio = 0; inicio < anexos.length; inicio += 10) {
-            const primeiraMensagem = inicio === 0;
-            await canal.send({
-                content: primeiraMensagem ? `📦 **[${titulo}] • Item #${item}**\n\n@everyone` : undefined,
-                allowedMentions: settings.everyoneMentions ? { parse: ['everyone'] } : { parse: [] },
-                files: anexos.slice(inicio, inicio + 10)
-            });
+@everyone`,
+            allowedMentions: settings.everyoneMentions ? { parse: ['everyone'] } : { parse: [] }
+        });
+        for (const arquivo of arquivos) {
+            if (arquivo.size <= tamanhoMaximoParte) {
+                await canal.send({ files: [new AttachmentBuilder(arquivo.path, { name: arquivo.name })] });
+                continue;
+            }
+
+            const pastaTemporaria = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'botstz-armazem-'));
+            try {
+                const { nomesPartes, quantidade, tamanho } = await dividirArquivo(arquivo.path, pastaTemporaria, arquivo.name, tamanhoMaximoParte);
+                const comando = instrucaoJuntarPartes(arquivo.name, nomesPartes);
+                const motivo = arquivosGrandes.some(grande => grande.name === arquivo.name)
+                    ? `excede o limite atual de ${formatarTamanho(limiteUpload)}`
+                    : `foi dividido para ficar abaixo do limite de ${formatarTamanho(limiteUpload)}`;
+                await canal.send(`📦 **${arquivo.name}** (${formatarTamanho(tamanho)}) ${motivo}. Enviei ${quantidade} partes, uma por mensagem.
+${comando}`);
+                for (const nomeParte of nomesPartes) {
+                    await canal.send({ files: [new AttachmentBuilder(path.join(pastaTemporaria, nomeParte), { name: nomeParte })] });
+                }
+            } finally {
+                await fsPromises.rm(pastaTemporaria, { recursive: true, force: true });
+            }
         }
         armazemEstado.indexAtual += 1;
         armazemEstado.ultimoTimestampEnvio = agoraMs;

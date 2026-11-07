@@ -5,6 +5,7 @@ Os arquivos desta pasta são o armazenamento local persistente do bot. O código
 | Arquivo | Conteúdo |
 |---|---|
 | `bot-config.json` | Canais, automações, fuso horário e preferências |
+| `ticket-panels.json` | Textos e opções do menu dos painéis separados de suporte e compras, além do aviso de manutenção |
 | `parcerias.json` | Parcerias publicadas pelo bot |
 | `anuncios_fivem.json` | Anúncios FiveM publicados e IDs das mensagens |
 | `audit-log.json` | Até 1000 ações administrativas recentes |

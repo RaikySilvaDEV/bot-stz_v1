@@ -500,3 +500,6 @@ dialog::backdrop { background: rgb(2 4 8 / 74%); }
 .chart-point:nth-of-type(5) { animation-delay: 240ms; }
 .chart-point:nth-of-type(6) { animation-delay: 300ms; }
 .chart-point:nth-of-type(7) { animation-delay: 360ms; }
+
+.form-grid .full { grid-column: 1 / -1; }
+@media (max-width: 760px) { .form-grid .full { grid-column: auto; } }

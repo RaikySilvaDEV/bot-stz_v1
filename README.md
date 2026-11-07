@@ -40,6 +40,16 @@ npm start
 
 A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel e o bot precisam apontar para a mesma porta. O painel local fica em `http://127.0.0.1:3001/painel`. Para acesso externo, use HTTPS e defina `DASHBOARD_PUBLIC_URL` com a URL pública completa do painel. Quick Tunnels não garantem um endereço fixo.
 
+Se o log do `cloudflared` mostrar `Failed to refresh DNS local resolver` ou `i/o timeout`, a falha está no resolvedor DNS da máquina que hospeda o bot. No PowerShell **como Administrador dessa máquina**, verifique o adaptador ativo e configure DNS público:
+
+```powershell
+$adapter = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
+Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses 1.1.1.1,1.0.0.1
+Clear-DnsClientCache
+```
+
+Para restaurar o DNS automático, execute `Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ResetServerAddresses`. A rede também precisa permitir consultas DNS de saída na porta UDP 53. O bot continua tentando reconectar o túnel; sem DNS, porém, o endereço web não fica acessível externamente.
+
 ### Instalação no Windows com atualização automática
 
 O script `scripts/setup-windows-auto-deploy.ps1` prepara um clone Git separado em `C:\Bots\bot-stz-v1`, preserva o `.env` e os dados locais que já existirem, baixa o `cloudflared` oficial e cria uma tarefa do Windows para iniciar o supervisor no boot e verificar o branch configurado a cada minuto. Quando há novo commit, ele atualiza o código, reinstala dependências e reinicia o bot. Os logs ficam em `C:\ProgramData\BotSTZ\logs`. O computador precisa permanecer ligado e sem suspensão.

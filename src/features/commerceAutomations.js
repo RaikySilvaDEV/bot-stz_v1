@@ -9,6 +9,7 @@ import {
     getMercadoPagoTestPayment, markMercadoPagoTestPaymentDelivered
 } from '../repositories/mercadoPagoTestPaymentRepository.js';
 import { confirmMercadoPagoResponse } from '../services/mercadoPagoResponses.js';
+import { logRoleChange } from '../services/audit.js';
 import { sendPurchaseFeedbackPrompt } from './commerceFeedback.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -41,7 +42,10 @@ export async function handlePaidOrder(orderId, paymentDetails = {}, { forceDeliv
             const member = await guild.members.fetch(order.buyerId);
             const role = await guild.roles.fetch(roleId);
             if (!role || role.managed || guild.members.me.roles.highest.comparePositionTo(role) <= 0) throw new Error('Cargo inválido, gerenciado ou acima do cargo do bot.');
-            if (!member.roles.cache.has(role.id)) await member.roles.add(role, `Pedido pago ${order.id}`);
+            if (!member.roles.cache.has(role.id)) {
+                await member.roles.add(role, `Pedido pago ${order.id}`);
+                await logRoleChange(guild, { member, role, action: 'assignment', orderId: order.id });
+            }
             updated = updateOrder(order.id, { status: 'delivered', deliveredAt: new Date().toISOString(), deliveryRoleId: role.id });
             if (config.automations.digitalDelivery) {
                 const message = config.deliveryMessages[product.value] || product.description;
@@ -123,7 +127,11 @@ export async function runCommerceAutomations() {
                     const member = await targetGuild?.members.fetch(order.buyerId);
                     const hasNewerAccess = getOrders().some(other => other.id !== order.id && other.guildId === order.guildId && other.buyerId === order.buyerId &&
                         other.deliveryRoleId === order.deliveryRoleId && other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt);
-                    if (!hasNewerAccess && member?.roles.cache.has(order.deliveryRoleId)) await member.roles.remove(order.deliveryRoleId, `Acesso expirado no pedido ${order.id}`);
+                    if (!hasNewerAccess && member?.roles.cache.has(order.deliveryRoleId)) {
+                        await member.roles.remove(order.deliveryRoleId, `Acesso expirado no pedido ${order.id}`);
+                        const role = await targetGuild.roles.fetch(order.deliveryRoleId).catch(() => null);
+                        if (role) await logRoleChange(targetGuild, { member, role, action: 'removal', orderId: order.id });
+                    }
                     updateOrder(order.id, { status: 'expired', roleExpiredAt: new Date().toISOString() });
                 } catch (error) {
                     console.error(`[loja:expiracao:${order.id}] Não foi possível remover o cargo:`, error.message);

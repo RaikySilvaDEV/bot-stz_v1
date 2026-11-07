@@ -18,7 +18,9 @@ const DEFAULT_SETTINGS = {
         partnerships: CANAL_PARCERIA_PUBLICA,
         fivemAnnouncements: CANAL_ANUNCIO_FIVE_M_ID,
         supportCategory: CATEGORIA_SUPORTE_ID,
+        purchaseCategory: null,
         ticketPanel: CANAL_ABRIR_TICKET_ID,
+        purchasePanel: CANAL_COMPRAS_ONLINE_STATUS,
         verification: CANAL_VERIFICACAO_ID,
         welcome: CANAL_BOAS_VINDAS_ID,
         wallpapers: CANAL_WALLPAPERS_ID,
@@ -30,6 +32,7 @@ const DEFAULT_SETTINGS = {
         precisionInfo: CANAL_INFO_PRECISION_ID,
         stockCtz: CANAL_POST_CTZ,
         stockBoosters: CANAL_POST_BOOSTERS,
+        roleLogs: null,
         audit: CANAL_LOGS_ADMIN_ID
     }
 };

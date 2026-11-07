@@ -31,6 +31,8 @@ import {
     reconcilePartnerPayout, sendPartnerPayout
 } from '../services/partnerPayouts.js';
 import { logAction } from '../services/audit.js';
+import { getTicketPanelConfig, updateTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
+import { configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
     dashboardLoginResponse, dashboardLogoutResponse, dashboardPasswordValid,
@@ -240,6 +242,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             return responder(res, 200, {
                 timezone: settings.timezone, announcementHours: settings.announcementHours,
                 everyoneMentions: settings.everyoneMentions, channels: settings.channels,
+                ticketPanels: getTicketPanelConfig(),
                 availableChannels: [...channels.values()].filter(channel => channel && ([0, 5].includes(channel.type) || channel.type === 4))
                     .map(channel => ({ id: channel.id, name: channel.name, type: channel.type === 4 ? 'category' : 'text' }))
                     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
@@ -273,14 +276,33 @@ export async function handleDashboardRoute(req, res, url, readJson) {
                     if (id === null || id === '') { next[key] = null; continue; }
                     if (typeof id !== 'string') return responder(res, 400, { erro: `Canal inválido em ${key}.` }), true;
                     const channel = channels.get(id);
-                    const valid = key === 'supportCategory' ? channel?.type === 4 : [0, 5].includes(channel?.type);
+                    const valid = ['supportCategory', 'purchaseCategory'].includes(key) ? channel?.type === 4 : [0, 5].includes(channel?.type);
                     if (!valid) return responder(res, 400, { erro: `Selecione um canal compatível para ${key}.` }), true;
                     next[key] = id;
                 }
                 update.channels = next;
             }
+            if (body?.ticketPanels !== undefined) {
+                try { updateTicketPanelConfig(body.ticketPanels); }
+                catch (error) { return responder(res, 400, { erro: error.message }), true; }
+            }
             const settings = updateSettings(update);
-            return responder(res, 200, { timezone: settings.timezone, announcementHours: settings.announcementHours, everyoneMentions: settings.everyoneMentions, channels: settings.channels }), true;
+            return responder(res, 200, { timezone: settings.timezone, announcementHours: settings.announcementHours, everyoneMentions: settings.everyoneMentions, channels: settings.channels, ticketPanels: getTicketPanelConfig() }), true;
+        }
+        if (pathname === '/api/painel/tickets/publish' && req.method === 'POST') {
+            const result = await configurarPainelTickets();
+            if (!result?.support || !result?.purchase) return responder(res, 400, { erro: 'Configure os canais de suporte e compras e confira se o bot pode enviar mensagens neles.' }), true;
+            return responder(res, 200, { ok: true }), true;
+        }
+        if (pathname === '/api/painel/maintenance/announce' && req.method === 'POST') {
+            const body = await readJson(req);
+            if (body?.message !== undefined) {
+                try { updateTicketPanelConfig({ maintenance: { message: body.message } }); }
+                catch (error) { return responder(res, 400, { erro: error.message }), true; }
+            }
+            const result = await publicarAvisoManutencao();
+            if (!result.ok) return responder(res, 400, { erro: result.reason }), true;
+            return responder(res, 200, { ok: true, channelId: result.channelId }), true;
         }
         if (pathname === '/api/painel/roles' && req.method === 'GET') {
             const guild = client.guilds.cache.get(GUILD_ID);

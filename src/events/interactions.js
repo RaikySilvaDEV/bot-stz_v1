@@ -1,9 +1,10 @@
 import {
-    ChannelType, MessageFlags, PermissionsBitField
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags, PermissionsBitField
 } from 'discord.js';
 import { client } from '../client.js';
 import { CARGO_VERIFICADO_ID, CARGO_STAFF_SUPORTE_ID } from '../config/constants.js';
 import { getSettings } from '../repositories/settingsRepository.js';
+import { getTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
 import { logAction } from '../services/audit.js';
 import { archiveAndCloseTicket } from '../services/ticketClosure.js';
 import { tratarInteracaoAdministracao } from '../features/administration.js';
@@ -16,6 +17,52 @@ import { tratarAdminLoja } from '../features/commerceAdmin.js';
 import { tratarInteracaoFeedback } from '../features/commerceFeedback.js';
 
 const ticketsEmCriacao = new Set();
+
+async function criarTicketPrivado(interaction, type, selectedOption = null) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const guild = interaction.guild;
+    if (ticketsEmCriacao.has(interaction.user.id)) return interaction.editReply({ content: 'Seu canal está sendo aberto. Aguarde um instante.' });
+    ticketsEmCriacao.add(interaction.user.id);
+    try {
+        await guild.channels.fetch();
+        const settings = getSettings();
+        const parentId = type === 'purchase' ? (settings.channels.purchaseCategory || settings.channels.supportCategory) : settings.channels.supportCategory;
+        const ticketType = type === 'purchase' ? 'compra' : 'suporte';
+        const topic = `ticket-owner:${interaction.user.id};ticket-type:${ticketType}`;
+        const existing = guild.channels.cache.find(channel => channel.parentId === parentId && channel.type === ChannelType.GuildText &&
+            (channel.topic === topic || (type === 'support' && channel.topic === `ticket-owner:${interaction.user.id}`)));
+        if (existing) {
+            if (type === 'purchase') await publicarSeletorProdutos(existing).catch(error => console.error(`[loja:${existing.id}] Não foi possível publicar o carrinho:`, error));
+            return interaction.editReply({ content: `Você já tem este canal aberto: ${existing}` });
+        }
+        const safeName = (interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || interaction.user.id).slice(0, 80);
+        const channel = await guild.channels.create({
+            name: `${ticketType}-${safeName}`.slice(0, 100), type: ChannelType.GuildText, parent: parentId, topic,
+            permissionOverwrites: [
+                { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+                { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.EmbedLinks, PermissionsBitField.Flags.AttachFiles] },
+                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+                { id: CARGO_STAFF_SUPORTE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
+            ]
+        });
+        if (type === 'purchase') {
+            await publicarSeletorProdutos(channel);
+        } else {
+            await channel.send({
+                embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🎫 Atendimento aberto')
+                    .setDescription(`Cliente: <@${interaction.user.id}>\nAssunto: **${selectedOption?.label ?? 'Atendimento geral'}**\n\n${selectedOption?.description ?? 'A equipe responderá assim que possível.'}`)
+                    .setTimestamp()],
+                components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('fechar_ticket').setLabel('Fechar ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒'))],
+                allowedMentions: { users: [interaction.user.id] }
+            });
+        }
+        await logAction(guild, interaction.user.id, type === 'purchase' ? 'Ticket de compra aberto' : 'Ticket de suporte aberto', `Canal ${channel.name}`);
+        await interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000).unref?.();
+    } finally {
+        ticketsEmCriacao.delete(interaction.user.id);
+    }
+}
 
 client.on('interactionCreate', async interaction => {
     try {
@@ -69,6 +116,12 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ flags: MessageFlags.Ephemeral, content: 'Comando não reconhecido.' });
         }
 
+        if (interaction.isStringSelectMenu() && interaction.customId === 'ticket:select:support') {
+            const selectedOption = getTicketPanelConfig().support.options.find(option => option.value === interaction.values[0]);
+            if (!selectedOption) return interaction.reply({ content: 'Essa opção foi removida. Atualize o painel e tente novamente.', flags: MessageFlags.Ephemeral });
+            return criarTicketPrivado(interaction, 'support', selectedOption);
+        }
+
         if (!interaction.isButton()) return;
 
         if (interaction.customId === 'botao_verificar') {
@@ -83,44 +136,8 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: '✅ Verificação concluída!', flags: MessageFlags.Ephemeral });
         }
 
-        if (interaction.customId === 'abrir_ticket') {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            const guild = interaction.guild;
-            if (ticketsEmCriacao.has(interaction.user.id)) return interaction.editReply({ content: 'Seu atendimento está sendo aberto. Aguarde um instante.' });
-            ticketsEmCriacao.add(interaction.user.id);
-            try {
-            await guild.channels.fetch();
-            const supportCategoryId = getSettings().channels.supportCategory;
-            const duplicateTicket = guild.channels.cache.find(channel => channel.parentId === supportCategoryId && channel.type === ChannelType.GuildText && channel.topic === `ticket-owner:${interaction.user.id}`);
-            if (duplicateTicket) {
-                await publicarSeletorProdutos(duplicateTicket).catch(error => console.error(`[loja:${duplicateTicket.id}] Não foi possível publicar o carrinho:`, error));
-                return interaction.editReply({ content: `Você já tem um atendimento aberto: ${duplicateTicket}` });
-            }
-            const cleanUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || interaction.user.id;
-            const tipo = 'ticket';
-            const channel = await guild.channels.create({
-                name: `${tipo}-${cleanUser}`.slice(0, 100),
-                type: ChannelType.GuildText,
-                parent: supportCategoryId,
-                topic: `ticket-owner:${interaction.user.id}`,
-                permissionOverwrites: [
-                    { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-                    { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.EmbedLinks, PermissionsBitField.Flags.AttachFiles] },
-                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-                    { id: CARGO_STAFF_SUPORTE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
-                ]
-            });
-            await publicarSeletorProdutos(channel).catch(error => console.error(`[loja:${channel.id}] Não foi possível publicar o carrinho:`, error));
-            await logAction(guild, interaction.user.id, 'Ticket aberto', `Canal ${channel.name}`);
-            await interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
-            setTimeout(() => {
-                interaction.deleteReply().catch(() => {});
-            }, 5000).unref?.();
-            return;
-            } finally {
-                ticketsEmCriacao.delete(interaction.user.id);
-            }
-        }
+        if (interaction.customId === 'abrir_ticket') return criarTicketPrivado(interaction, 'support');
+        if (interaction.customId === 'ticket:open:purchase') return criarTicketPrivado(interaction, 'purchase');
 
         if (interaction.customId === 'fechar_ticket') {
             const member = await interaction.guild.members.fetch(interaction.user.id);
