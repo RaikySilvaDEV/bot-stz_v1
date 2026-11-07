@@ -33,6 +33,7 @@ const DEFAULT_SETTINGS = {
         stockCtz: CANAL_POST_CTZ,
         stockBoosters: CANAL_POST_BOOSTERS,
         roleLogs: null,
+        salesLogs: null,
         audit: CANAL_LOGS_ADMIN_ID
     }
 };

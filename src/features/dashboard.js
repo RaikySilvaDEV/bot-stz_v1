@@ -37,7 +37,7 @@ const CHANNEL_LABELS = {
     verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers',
     suggestions: 'Sugestões', feedback: 'Avaliações de clientes', purchaseStatus: 'Status de compras', supportNotices: 'Avisos de suporte',
     roleNews: 'Novidades de cargos', precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ',
-    stockBoosters: 'Armazém Boosters', roleLogs: 'Registros de cargos', audit: 'Auditoria'
+    stockBoosters: 'Armazém Boosters', roleLogs: 'Registros de cargos', salesLogs: 'Registros de vendas', audit: 'Auditoria'
 };
 
 function uptimeText() {

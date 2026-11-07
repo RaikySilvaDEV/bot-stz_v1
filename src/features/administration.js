@@ -27,7 +27,7 @@ const CHANNEL_LABELS = {
     verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers', suggestions: 'Sugestões',
     purchaseStatus: 'Status de compras', supportNotices: 'Avisos de suporte', roleNews: 'Novidades de cargos',
     precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ', stockBoosters: 'Armazém CTZ Boosters',
-    roleLogs: 'Registros de cargos', audit: 'Logs administrativos'
+    roleLogs: 'Registros de cargos', salesLogs: 'Registros de vendas', audit: 'Logs administrativos'
 };
 const AUTOMATION_LABELS = { announcements: 'Avisos agendados', wallpapers: 'Wallpapers às 12:00', stock: 'Armazéns diários às 12:30', aiResponses: 'Atendimento automático por IA' };
 const CHANNEL_CHOICES = Object.entries(CHANNEL_LABELS).map(([value, name]) => ({ name, value }));

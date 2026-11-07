@@ -9,7 +9,8 @@ import {
     getMercadoPagoTestPayment, markMercadoPagoTestPaymentDelivered
 } from '../repositories/mercadoPagoTestPaymentRepository.js';
 import { confirmMercadoPagoResponse } from '../services/mercadoPagoResponses.js';
-import { logAction, logRoleChange } from '../services/audit.js';
+import { calculateMercadoPagoSettlement } from '../services/mercadoPagoSettlement.js';
+import { logAction, logRoleChange, logSale } from '../services/audit.js';
 import { archiveAndCloseTicket } from '../services/ticketClosure.js';
 import { sendPurchaseFeedbackPrompt } from './commerceFeedback.js';
 
@@ -33,9 +34,14 @@ async function registrarVendaEFecharTicket(order) {
         const customerName = customer?.displayName ?? order.buyerId;
         const cargo = role?.name ?? product?.roleName ?? 'não identificado';
         await logAction(guild, order.buyerId, 'Venda aprovada',
-            `Cliente: ${customerName}; produto: ${order.productName}; valor: ${formatPrice(order.amountCents)}; cargo: ${cargo}; pedido: ${order.id}`);
+            `Cliente: ${customerName}; produto: ${order.productName}; valor bruto: ${formatPrice(order.amountCents)}; taxa Mercado Pago: ${Number.isSafeInteger(order.feeAmountCents) ? formatPrice(order.feeAmountCents) : 'indisponível'}; líquido recebido: ${Number.isSafeInteger(order.netAmountCents) ? formatPrice(order.netAmountCents) : 'indisponível'}; cargo: ${cargo}; pedido: ${order.id}`);
         updateOrder(order.id, { salesLogAt: new Date().toISOString() });
         order.salesLogAt = new Date().toISOString();
+    }
+    if (!order.saleChannelLogAt && await logSale(guild, order)) {
+        const timestamp = new Date().toISOString();
+        updateOrder(order.id, { saleChannelLogAt: timestamp });
+        order.saleChannelLogAt = timestamp;
     }
 
     if (order.ticketClosedAt || order.status !== 'delivered') return true;
@@ -82,10 +88,16 @@ export async function handlePaidOrder(orderId, paymentDetails = {}, { forceDeliv
     const config = getCommerceConfig();
     const paidAt = order.paidAt ?? new Date().toISOString();
     const expiresAt = new Date(Date.now() + product.durationDays * DAY).toISOString();
+    const settlement = order.provider === 'mercadoPago' && paymentDetails.id
+        ? calculateMercadoPagoSettlement(paymentDetails, order.amountCents)
+        : null;
     let updated = updateOrder(order.id, {
         status: 'paid', paidAt, entitlementExpiresAt: expiresAt,
         providerPaymentId: paymentDetails.id ?? order.providerPaymentId ?? null,
-        providerStatus: paymentDetails.status ?? 'approved', stockReserved: false
+        providerStatus: paymentDetails.status ?? 'approved', stockReserved: false,
+        ...(settlement ?? (order.provider === 'mercadoPago' && paymentDetails.id
+            ? { grossAmountCents: order.amountCents, netAmountCents: null, feeAmountCents: null, settlementSource: null }
+            : {}))
     });
     if (order.stockReserved) {
         // A reserva vira venda; não devolver ao estoque.
@@ -165,7 +177,8 @@ export async function runCommerceAutomations() {
         const now = Date.now();
         const guild = client.guilds.cache.get(GUILD_ID);
         for (const order of getOrders()) {
-            if (order.provider === 'mercadoPago' && order.paidAt && order.status === 'delivered' && !order.ticketClosedAt && !order.ticketCloseSkippedAt) {
+            if (order.provider === 'mercadoPago' && order.paidAt && order.status === 'delivered' &&
+                ((!order.ticketClosedAt && !order.ticketCloseSkippedAt) || !order.saleChannelLogAt)) {
                 await registrarVendaEFecharTicket(order);
             }
             if (['pending', 'awaiting_manual_confirmation'].includes(order.status)) {

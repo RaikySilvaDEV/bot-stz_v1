@@ -422,6 +422,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const settings = saveMercadoPagoSettings({
                 payoutsAccessToken: body?.accessToken,
                 payoutsTestMode: body?.testMode,
+                payoutsTestMaxCents: body?.testMaxCents,
                 payoutsPrivateKeyPath: body?.privateKeyPath
             });
             return responder(res, 200, { settings }), true;
