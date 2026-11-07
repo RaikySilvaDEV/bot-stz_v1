@@ -165,6 +165,35 @@ export function getScheduleDateParts(date, timeZone) {
     return { dateKey: `${values.year}-${values.month}-${values.day}`, hour: Number(values.hour), minute: Number(values.minute) };
 }
 
+function getPreviousScheduleDateKey(dateKey) {
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const previous = new Date(Date.UTC(year, month - 1, day - 1));
+    return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, '0')}-${String(previous.getUTCDate()).padStart(2, '0')}`;
+}
+
+function isScheduleTimeDue(scheduledHour, hour, minute) {
+    return scheduledHour < hour || (scheduledHour === hour && minute >= 0);
+}
+
+async function recuperarAvisosPendentes(settings, dateKey, hour, minute) {
+    if (!settings.automations.announcements) return false;
+    const previousDate = getPreviousScheduleDateKey(dateKey);
+    const completedYesterday = getAnnouncementHoursCompleted(previousDate);
+    const missedYesterday = settings.announcementHours.some(scheduledHour => !completedYesterday.includes(scheduledHour));
+    const completedToday = getAnnouncementHoursCompleted(dateKey);
+    const dueToday = settings.announcementHours.filter(scheduledHour => isScheduleTimeDue(scheduledHour, hour, minute));
+    const missedToday = dueToday.some(scheduledHour => !completedToday.includes(scheduledHour));
+    if (!missedYesterday && !missedToday) return false;
+
+    if (!await dispararAvisosLoopHorario()) return false;
+    if (missedYesterday) markAnnouncementHoursCompleted(previousDate, settings.announcementHours);
+    if (missedToday) {
+        markAnnouncementHoursCompleted(dateKey, [...completedToday, ...dueToday]);
+    }
+    console.info(`[avisos] Recuperação concluída${missedYesterday ? ` (pendência de ${previousDate})` : ''}${missedToday ? ` (pendência de hoje: ${dueToday.join(', ')})` : ''}.`);
+    return true;
+}
+
 export async function dispararWallpaperDiario() {
     const settings = getSettings();
     if (!settings.automations.wallpapers) return false;
@@ -295,8 +324,6 @@ export async function dispararArmazensDiarios(forcarEnvio = false) {
 }
 
 export function iniciarAgendadorRelogio() {
-    let ultimoAvisoAgendado = '';
-    let ultimoWallpaper = '';
     let ultimaTentativaEstoqueEm = 0;
     let dataUltimaTentativaEstoque = '';
     const tarefasEmAndamento = new Set();
@@ -311,20 +338,32 @@ export function iniciarAgendadorRelogio() {
       try {
         const settings = getSettings();
         const { dateKey, hour: hora, minute: minuto } = getScheduleDateParts(new Date(), settings.timezone);
-        const dataHora = `${dateKey}T${String(hora).padStart(2, '0')}:${String(minuto).padStart(2, '0')}`;
-        if (dataHora !== ultimoAvisoAgendado && minuto === 0 && settings.automations.announcements && settings.announcementHours.includes(hora) && !getAnnouncementHoursCompleted(dateKey).includes(hora)) {
-            ultimoAvisoAgendado = dataHora;
-            executarAgendado('avisos', async () => {
-                if (await dispararAvisosLoopHorario()) markAnnouncementHoursCompleted(dateKey, [...getAnnouncementHoursCompleted(dateKey), hora]);
-            });
+        const previousDate = getPreviousScheduleDateKey(dateKey);
+        if (settings.automations.announcements) {
+            const completedYesterday = getAnnouncementHoursCompleted(previousDate);
+            const missedYesterday = settings.announcementHours.some(scheduledHour => !completedYesterday.includes(scheduledHour));
+            const completedToday = getAnnouncementHoursCompleted(dateKey);
+            const dueToday = settings.announcementHours.filter(scheduledHour => isScheduleTimeDue(scheduledHour, hora, minuto));
+            const missedToday = dueToday.some(scheduledHour => !completedToday.includes(scheduledHour));
+            if (missedYesterday || missedToday) {
+                executarAgendado('avisos', () => recuperarAvisosPendentes(settings, dateKey, hora, minuto));
+            }
         }
-        if (dataHora !== ultimoWallpaper && minuto === 0 && hora === 12 && settings.automations.wallpapers && getWallpaperDateCompleted() !== dateKey) {
-            ultimoWallpaper = dataHora;
-            executarAgendado('wallpapers', dispararWallpaperDiario);
+        if (settings.automations.wallpapers) {
+            const wallpaperDate = getWallpaperDateCompleted();
+            const wallpaperWasMissedYesterday = wallpaperDate && wallpaperDate < dateKey;
+            const wallpaperDueToday = hora > 12 || (hora === 12 && minuto >= 0);
+            if ((wallpaperWasMissedYesterday || wallpaperDueToday) && wallpaperDate !== dateKey) {
+                executarAgendado('wallpapers', dispararWallpaperDiario);
+            }
         }
         const stockDue = hora > 12 || (hora === 12 && minuto >= 30);
+        const stockState = getStockState();
+        const stockMissedYesterday = [stockState.ctz, stockState.boosters].some(state =>
+            state.ultimoTimestampEnvio > 0 && getScheduleDateParts(new Date(state.ultimoTimestampEnvio), settings.timezone).dateKey < dateKey
+        );
         const retryStock = dataUltimaTentativaEstoque !== dateKey || Date.now() - ultimaTentativaEstoqueEm >= 5 * 60 * 1000;
-        if (settings.automations.stock && stockDue && retryStock) {
+        if (settings.automations.stock && (stockDue || stockMissedYesterday) && retryStock) {
             dataUltimaTentativaEstoque = dateKey;
             ultimaTentativaEstoqueEm = Date.now();
             executarAgendado('estoque-diario', async () => {
@@ -342,13 +381,16 @@ export function iniciarAgendadorRelogio() {
 export async function verificarEnviosPendentesAoLigar() {
     const settings = getSettings();
     const { dateKey, hour, minute } = getScheduleDateParts(new Date(), settings.timezone);
-    if (settings.automations.announcements) {
-        const dueHours = settings.announcementHours.filter(scheduledHour => scheduledHour < hour || (scheduledHour === hour && minute > 0));
-        const completed = getAnnouncementHoursCompleted(dateKey);
-        const missing = dueHours.filter(scheduledHour => !completed.includes(scheduledHour));
-        if (missing.length && await dispararAvisosLoopHorario()) markAnnouncementHoursCompleted(dateKey, [...completed, ...missing]);
+    await recuperarAvisosPendentes(settings, dateKey, hour, minute);
+    const wallpaperDate = getWallpaperDateCompleted();
+    if (settings.automations.wallpapers && wallpaperDate !== dateKey &&
+        (hour > 12 || (hour === 12 && minute >= 0) || Boolean(wallpaperDate && wallpaperDate < dateKey))) {
+        await dispararWallpaperDiario();
     }
-    if (settings.automations.wallpapers && hour >= 12 && getWallpaperDateCompleted() !== dateKey) await dispararWallpaperDiario();
     const stockDue = hour > 12 || (hour === 12 && minute >= 30);
-    if (settings.automations.stock && stockDue) await dispararArmazensDiarios(false);
+    const stockState = getStockState();
+    const stockMissedYesterday = [stockState.ctz, stockState.boosters].some(state =>
+        state.ultimoTimestampEnvio > 0 && getScheduleDateParts(new Date(state.ultimoTimestampEnvio), settings.timezone).dateKey < dateKey
+    );
+    if (settings.automations.stock && (stockDue || stockMissedYesterday)) await dispararArmazensDiarios(false);
 }
