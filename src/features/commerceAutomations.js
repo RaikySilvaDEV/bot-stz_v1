@@ -9,12 +9,68 @@ import {
     getMercadoPagoTestPayment, markMercadoPagoTestPaymentDelivered
 } from '../repositories/mercadoPagoTestPaymentRepository.js';
 import { confirmMercadoPagoResponse } from '../services/mercadoPagoResponses.js';
-import { logRoleChange } from '../services/audit.js';
+import { logAction, logRoleChange } from '../services/audit.js';
+import { archiveAndCloseTicket } from '../services/ticketClosure.js';
 import { sendPurchaseFeedbackPrompt } from './commerceFeedback.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 let timer;
 let running = false;
+
+function formatPrice(cents) {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
+}
+
+async function registrarVendaEFecharTicket(order) {
+    let guild = client.guilds.cache.get(order.guildId) ?? await client.guilds.fetch(order.guildId).catch(() => null);
+    if (!guild) return false;
+
+    if (!order.salesLogAt) {
+        const product = getCommerceProduct(order.productValue);
+        const roleId = order.deliveryRoleId;
+        const role = roleId ? await guild.roles.fetch(roleId).catch(() => null) : null;
+        const customer = await guild.members.fetch(order.buyerId).catch(() => null);
+        const customerName = customer?.displayName ?? order.buyerId;
+        const cargo = role?.name ?? product?.roleName ?? 'não identificado';
+        await logAction(guild, order.buyerId, 'Venda aprovada',
+            `Cliente: ${customerName}; produto: ${order.productName}; valor: ${formatPrice(order.amountCents)}; cargo: ${cargo}; pedido: ${order.id}`);
+        updateOrder(order.id, { salesLogAt: new Date().toISOString() });
+        order.salesLogAt = new Date().toISOString();
+    }
+
+    if (order.ticketClosedAt || order.status !== 'delivered') return true;
+    const now = Date.now();
+    if (order.ticketCloseAttemptAt && now - Date.parse(order.ticketCloseAttemptAt) < 5 * 60 * 1000) return true;
+    updateOrder(order.id, { ticketCloseAttemptAt: new Date(now).toISOString(), ticketCloseError: null });
+
+    const ticket = await guild.channels.fetch(order.channelId).catch(() => null);
+    if (!ticket) {
+        updateOrder(order.id, { ticketClosedAt: new Date().toISOString(), ticketCloseError: null });
+        return true;
+    }
+    const ownerMatches = new RegExp(`(?:^|;)ticket-owner:${order.buyerId}(?:;|$)`).test(ticket.topic ?? '');
+    const isPurchaseTicket = (ticket.topic ?? '').includes('ticket-type:compra');
+    if (ticket.type !== ChannelType.GuildText || !ownerMatches || !isPurchaseTicket) {
+        updateOrder(order.id, { ticketCloseSkippedAt: new Date().toISOString() });
+        console.warn(`[loja:${order.id}] O canal do pedido não corresponde ao ticket de compra do cliente; não será fechado.`);
+        return true;
+    }
+
+    try {
+        await ticket.send({
+            content: `✅ Pagamento confirmado e cargo liberado para **${order.productName}**. A venda foi registrada; este ticket será fechado automaticamente em 5 segundos.`,
+            allowedMentions: { parse: [] }
+        });
+        await new Promise(resolve => setTimeout(resolve, 5_000));
+        await archiveAndCloseTicket(guild, ticket, order.buyerId, `Compra ${order.id} paga e entregue`);
+        updateOrder(order.id, { ticketClosedAt: new Date().toISOString(), ticketCloseError: null });
+        return true;
+    } catch (error) {
+        updateOrder(order.id, { ticketCloseError: String(error.message).slice(0, 300) });
+        console.error(`[loja:${order.id}] Venda registrada, mas não foi possível fechar o ticket; haverá nova tentativa:`, error.message);
+        return false;
+    }
+}
 
 export async function handlePaidOrder(orderId, paymentDetails = {}, { forceDelivery = false } = {}) {
     const order = getOrders().find(item => item.id === orderId);
@@ -73,6 +129,9 @@ export async function handlePaidOrder(orderId, paymentDetails = {}, { forceDeliv
             console.warn(`[mercado-pago:${order.id}] Não consegui atualizar a mensagem de confirmação:`, error.message);
         }
     }
+    if (order.provider === 'mercadoPago' && updated.status === 'delivered') {
+        await registrarVendaEFecharTicket({ ...updated });
+    }
     return { ok: true, order: updated };
 }
 
@@ -106,6 +165,9 @@ export async function runCommerceAutomations() {
         const now = Date.now();
         const guild = client.guilds.cache.get(GUILD_ID);
         for (const order of getOrders()) {
+            if (order.provider === 'mercadoPago' && order.paidAt && order.status === 'delivered' && !order.ticketClosedAt && !order.ticketCloseSkippedAt) {
+                await registrarVendaEFecharTicket(order);
+            }
             if (['pending', 'awaiting_manual_confirmation'].includes(order.status)) {
                 const age = now - Date.parse(order.createdAt);
                 if (config.automations.paymentReminders && age >= 30 * 60 * 1000 && (!order.lastReminderAt || now - Date.parse(order.lastReminderAt) >= 12 * 60 * 60 * 1000)) {
