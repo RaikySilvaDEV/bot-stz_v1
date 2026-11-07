@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ChannelType } from 'discord.js';
 import {
     addPaymentMethod, getPaymentConfig, removePaymentMethod, setPaymentMethodActive, updatePaymentMethod
 } from '../repositories/paymentMethodsRepository.js';
@@ -247,6 +248,79 @@ export async function handleDashboardRoute(req, res, url, readJson) {
                     .map(channel => ({ id: channel.id, name: channel.name, type: channel.type === 4 ? 'category' : 'text' }))
                     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
             }), true;
+        }
+        if (pathname === '/api/painel/channels' && req.method === 'GET') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            if (!guild) return responder(res, 503, { erro: 'Servidor Discord indisponível.' }), true;
+            const channels = await guild.channels.fetch().catch(() => null);
+            if (!channels) return responder(res, 503, { erro: 'Não foi possível carregar os canais do servidor.' }), true;
+            const supported = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildVoice, ChannelType.GuildCategory]);
+            const result = [...channels.values()].filter(channel => channel && supported.has(channel.type))
+                .map(channel => ({ id: channel.id, name: channel.name, type: channel.type, parentId: channel.parentId ?? null,
+                    topic: channel.topic ?? '', position: channel.position }))
+                .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'pt-BR'));
+            return responder(res, 200, { channels: result }), true;
+        }
+        if (pathname === '/api/painel/channels' && req.method === 'POST') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            if (!guild) return responder(res, 503, { erro: 'Servidor Discord indisponível.' }), true;
+            const body = await readJson(req);
+            const name = typeof body?.name === 'string' ? body.name.trim() : '';
+            const types = { text: ChannelType.GuildText, announcement: ChannelType.GuildAnnouncement, voice: ChannelType.GuildVoice, category: ChannelType.GuildCategory };
+            const type = types[body?.type];
+            if (!name || name.length > 100 || !type) return responder(res, 400, { erro: 'Informe nome (1–100 caracteres) e tipo de canal válido.' }), true;
+            const parentId = body?.parentId || null;
+            const parent = parentId ? await guild.channels.fetch(parentId).catch(() => null) : null;
+            if (parentId && parent?.type !== ChannelType.GuildCategory) return responder(res, 400, { erro: 'A categoria selecionada não existe.' }), true;
+            const position = body?.position === undefined ? undefined : Number(body.position);
+            if (position !== undefined && (!Number.isInteger(position) || position < 0 || position > 500)) return responder(res, 400, { erro: 'A posição deve ser um número entre 0 e 500.' }), true;
+            const channel = await guild.channels.create({ name, type, ...(type !== ChannelType.GuildCategory && parentId ? { parent: parentId } : {}),
+                ...(type !== ChannelType.GuildCategory && typeof body.topic === 'string' && body.topic.trim() ? { topic: body.topic.trim().slice(0, 1024) } : {}) });
+            if (position !== undefined) await channel.setPosition(position);
+            await logAction(guild, 'painel-web', 'Canal criado', `#${channel.name} (${channel.id})`);
+            return responder(res, 201, { channel: { id: channel.id, name: channel.name, type: channel.type, parentId: channel.parentId ?? null, topic: channel.topic ?? '', position: channel.position } }), true;
+        }
+        const channelMatch = pathname.match(/^\/api\/painel\/channels\/(\d{17,20})$/);
+        if (channelMatch && req.method === 'PATCH') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const channel = await guild?.channels.fetch(channelMatch[1]).catch(() => null);
+            const supported = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildVoice, ChannelType.GuildCategory]);
+            if (!channel || !supported.has(channel.type)) return responder(res, 404, { erro: 'Canal não encontrado ou tipo não gerenciável.' }), true;
+            const body = await readJson(req);
+            const requestedPosition = body?.position === undefined ? undefined : Number(body.position);
+            if (requestedPosition !== undefined && (!Number.isInteger(requestedPosition) || requestedPosition < 0 || requestedPosition > 500)) return responder(res, 400, { erro: 'A posição deve ser um número entre 0 e 500.' }), true;
+            const changes = {};
+            if (body?.name !== undefined) {
+                if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 100) return responder(res, 400, { erro: 'O nome deve ter entre 1 e 100 caracteres.' }), true;
+                changes.name = body.name.trim();
+            }
+            if (body?.topic !== undefined && channel.type !== ChannelType.GuildCategory) {
+                if (typeof body.topic !== 'string' || body.topic.length > 1024) return responder(res, 400, { erro: 'O tópico pode ter até 1024 caracteres.' }), true;
+                changes.topic = body.topic.trim() || null;
+            }
+            if (body?.parentId !== undefined && channel.type !== ChannelType.GuildCategory) {
+                const parentId = body.parentId || null;
+                const parent = parentId ? await guild.channels.fetch(parentId).catch(() => null) : null;
+                if (parentId && (parent?.type !== ChannelType.GuildCategory || parent.id === channel.id)) return responder(res, 400, { erro: 'Selecione uma categoria válida.' }), true;
+                changes.parent = parentId;
+                changes.lockPermissions = false;
+            }
+            if (Object.keys(changes).length) await channel.edit(changes);
+            if (requestedPosition !== undefined) await channel.setPosition(requestedPosition);
+            await logAction(guild, 'painel-web', 'Canal atualizado', `#${channel.name} (${channel.id})`);
+            const updated = await guild.channels.fetch(channel.id);
+            return responder(res, 200, { channel: { id: updated.id, name: updated.name, type: updated.type, parentId: updated.parentId ?? null, topic: updated.topic ?? '', position: updated.position } }), true;
+        }
+        if (channelMatch && req.method === 'DELETE') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const channel = await guild?.channels.fetch(channelMatch[1]).catch(() => null);
+            if (!channel) return responder(res, 404, { erro: 'Canal não encontrado.' }), true;
+            const configuredFor = Object.entries(getSettings().channels).filter(([, id]) => id === channel.id).map(([key]) => key);
+            if (configuredFor.length) return responder(res, 409, { erro: `Este canal está em uso pelo bot (${configuredFor.join(', ')}). Troque o destino em Configuração antes de excluir.` }), true;
+            const label = `#${channel.name} (${channel.id})`;
+            await channel.delete('Removido pelo painel web');
+            await logAction(guild, 'painel-web', 'Canal removido', label);
+            return responder(res, 200, { ok: true }), true;
         }
         if (pathname === '/api/painel/config' && req.method === 'PUT') {
             const body = await readJson(req);

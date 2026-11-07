@@ -122,5 +122,19 @@
       <div class="dialog-actions"><button type="button" id="cancel-announcement" class="secondary">Cancelar</button><button id="save-announcement" class="primary" type="submit">Publicar aviso</button></div>
     </form>
   </dialog>
+
+  <dialog id="channel-dialog" aria-labelledby="channel-dialog-title">
+    <form id="channel-form" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><p class="eyebrow">SERVIDOR DISCORD</p><h2 id="channel-dialog-title">Criar canal</h2></div><button type="button" id="close-channel" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
+      <label for="channel-name">Nome</label><input id="channel-name" maxlength="100" required>
+      <label for="channel-type">Tipo</label><select id="channel-type"><option value="text">Texto</option><option value="announcement">Anúncios</option><option value="voice">Voz</option><option value="category">Categoria</option></select>
+      <label for="channel-topic">Descrição / tópico</label><textarea id="channel-topic" maxlength="1024" rows="3" placeholder="Opcional"></textarea>
+      <label for="channel-parent">Categoria</label><select id="channel-parent"><option value="">Sem categoria</option></select>
+      <label for="channel-position">Posição na lista</label><input id="channel-position" type="number" min="0" max="500" value="0">
+      <p class="detail">Para mover um canal, selecione a categoria e a posição desejadas. O bot precisa de Gerenciar canais.</p>
+      <p id="channel-error" class="error" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-channel" class="secondary">Cancelar</button><button id="save-channel" class="primary" type="submit">Salvar canal</button></div>
+    </form>
+  </dialog>
 </body>
 </html>

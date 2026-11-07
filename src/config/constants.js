@@ -42,5 +42,7 @@ export const PATHS = {
     ctz: path.join(__dirname, 'ModArmazem', 'ctz'),
     boosters: path.join(__dirname, 'ModArmazem', 'ctz boosters'),
     wallpapers: path.join(__dirname, 'Wallpapers'),
-    storeImages: path.join(__dirname, 'assets', 'store')
+    storeImages: path.join(__dirname, 'assets', 'store'),
+    welcomeImage: path.join(__dirname, 'assets', 'welcome', 'Bem-Vindo.png'),
+    greetingImages: path.join(__dirname, 'assets', 'greetings')
 };

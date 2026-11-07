@@ -1,6 +1,7 @@
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
+import { AttachmentBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
+import fs from 'node:fs';
 import { client } from '../client.js';
-import { CANAL_PAINEL_PARCERIA_ANTIGO_ID } from '../config/constants.js';
+import { CANAL_PAINEL_PARCERIA_ANTIGO_ID, PATHS } from '../config/constants.js';
 import { getSaudacaoDinamica } from '../services/greetings.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { getTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
@@ -20,10 +21,18 @@ client.on('guildMemberAdd', async (member) => {
             .setFooter({ text: `Membro nº ${member.guild.memberCount}` })
             .setTimestamp();
 
-        await canalBoasVindas.send({
+        const payload = {
             content: `🎉 Olá <@${member.id}>! Seja bem-vindo(a)!`,
             embeds: [embed]
-        });
+        };
+        if (fs.existsSync(PATHS.welcomeImage)) {
+            const imageName = 'Bem-Vindo.png';
+            embed.setImage(`attachment://${imageName}`);
+            payload.files = [new AttachmentBuilder(PATHS.welcomeImage, { name: imageName })];
+        } else {
+            console.warn(`[boas-vindas] Imagem não encontrada: ${PATHS.welcomeImage}`);
+        }
+        await canalBoasVindas.send(payload);
     } catch (error) { console.error('[boas-vindas] Falha ao enviar mensagem:', error); }
 });
 

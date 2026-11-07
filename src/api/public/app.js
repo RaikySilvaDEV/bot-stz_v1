@@ -1,13 +1,13 @@
 const byId = id => document.getElementById(id);
 const pageFromStorage = localStorage.getItem('bot-dashboard-page');
 const validPages = new Set(['overview', 'services', 'automations', 'channels', 'announcements', 'config', 'store', 'payments', 'payouts', 'assistant']);
-const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], assistantMessages: [], roles: [], config: null };
+const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], assistantMessages: [], roles: [], config: null, managedChannels: [] };
 const pageTitles = { overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', announcements: 'Avisos', config: 'Configuração', store: 'Loja', payments: 'Pagamentos', payouts: 'Repasses', assistant: 'Assistente' };
 const pageDescriptions = {
   overview: 'Acompanhe o estado do bot e encontre rapidamente o que precisa de atenção.',
   services: 'Veja se as conexões, integrações e recursos locais estão prontos.',
   automations: 'Ative ou pause cada rotina e confira suas dependências.',
-  channels: 'Confira os canais definidos e as permissões atuais do bot.',
+  channels: 'Crie, renomeie, mova e organize canais do servidor; confira também as permissões do bot.',
   announcements: 'Crie, publique, edite e remova avisos no canal FiveM.',
   config: 'Ajuste os canais, horários, fuso e menções automáticas.',
   store: 'Organize a vitrine, os produtos, os pedidos e as avaliações.',
@@ -199,8 +199,43 @@ function renderAutomations(data) {
 }
 
 function renderChannels(data) {
-  byId('content').innerHTML = `<section class="card"><div class="section-head"><div><h2>Canais monitorados</h2><p class="detail">Encontrados automaticamente no servidor conectado.</p></div><span class="badge">${data.channels.length} canais</span></div><label class="table-search-label" for="channel-search">Filtrar canais</label><input id="channel-search" class="table-search" type="search" placeholder="Buscar por nome ou canal…"><div class="table-wrap table-wrap-inner"><table><thead><tr><th>Canal</th><th>Configuração</th><th>Permissões do bot</th><th>Estado</th></tr></thead><tbody>${data.channels.map(channel => `<tr data-search-row><td><strong>${escapeHtml(channel.label)}</strong><div class="detail">${escapeHtml(channel.name ?? '—')}</div></td><td>${channel.id ? `<code>${escapeHtml(channel.id)}</code>` : 'Não configurado'}</td><td>${channel.canView ? 'Leitura' : 'Sem leitura'} · ${channel.canSend ? 'Envio' : 'Sem envio'}</td><td>${channel.operational ? badge('Operante', 'ok') : channel.found ? badge('Permissão ausente', 'warn') : badge('Não encontrado', 'bad')}</td></tr>`).join('')}</tbody></table><p id="channel-empty" class="empty" hidden>Nenhum canal corresponde a essa busca.</p></div></section>`;
-  bindTableSearch('channel-search', 'channel-empty');
+  const channels = state.managedChannels;
+  const categories = channels.filter(channel => channel.type === 4);
+  const typeNames = { 0: 'Texto', 2: 'Voz', 4: 'Categoria', 5: 'Anúncios' };
+  const channelRows = channels.map(channel => `<tr data-channel-row><td><strong>${channel.type === 4 ? '▰ ' : '#'}${escapeHtml(channel.name)}</strong><div class="detail">${escapeHtml(typeNames[channel.type] ?? 'Canal')} · ${channel.parentId ? `em ${escapeHtml(categories.find(item => item.id === channel.parentId)?.name ?? 'categoria')}` : 'sem categoria'} · posição ${channel.position}</div></td><td><code>${escapeHtml(channel.id)}</code></td><td><button class="tiny edit-channel" data-id="${escapeHtml(channel.id)}" type="button">${icon('file-text')} Editar / mover</button> <button class="tiny danger delete-channel" data-id="${escapeHtml(channel.id)}" type="button">${icon('x')} Excluir</button></td></tr>`).join('');
+  byId('content').innerHTML = `<section class="card"><div class="section-head"><div><h2>Gerenciar canais do servidor</h2><p class="detail">Crie categorias, texto, anúncios e voz. Renomeie, mova entre categorias e ajuste a posição.</p></div><button class="primary" id="new-channel" type="button">${icon('plus')} Novo canal</button></div><label class="table-search-label" for="channel-search">Filtrar canais</label><input id="channel-search" class="table-search" type="search" placeholder="Buscar por nome ou categoria…"><div class="table-wrap table-wrap-inner"><table><thead><tr><th>Canal</th><th>ID</th><th>Ações</th></tr></thead><tbody>${channelRows || '<tr><td colspan="3">Nenhum canal gerenciável encontrado.</td></tr>'}</tbody></table></div><p class="detail">O bot precisa da permissão <strong>Gerenciar canais</strong>. A exclusão é permanente e solicita confirmação.</p></section>
+    <section class="card"><div class="section-head"><div><h2>Canais usados pelas funções do bot</h2><p class="detail">Estado e permissões atuais dos destinos configurados.</p></div><span class="badge">${data.channels.length} destinos</span></div><div class="table-wrap table-wrap-inner"><table><thead><tr><th>Função</th><th>Canal configurado</th><th>Permissões</th><th>Estado</th></tr></thead><tbody>${data.channels.map(channel => `<tr><td><strong>${escapeHtml(channel.label)}</strong></td><td>${escapeHtml(channel.name ?? 'Não configurado')}</td><td>${channel.canView ? 'Leitura' : 'Sem leitura'} · ${channel.canSend ? 'Envio' : 'Sem envio'}</td><td>${channel.operational ? badge('Operante', 'ok') : channel.found ? badge('Permissão ausente', 'warn') : badge('Não encontrado', 'bad')}</td></tr>`).join('')}</tbody></table></div></section>`;
+  byId('new-channel').addEventListener('click', () => openChannelDialog());
+  document.querySelectorAll('.edit-channel').forEach(button => button.addEventListener('click', () => openChannelDialog(channels.find(channel => channel.id === button.dataset.id))));
+  document.querySelectorAll('.delete-channel').forEach(button => button.addEventListener('click', async () => {
+    const channel = channels.find(item => item.id === button.dataset.id);
+    if (!channel || !window.confirm(`Excluir permanentemente #${channel.name}?`)) return;
+    button.disabled = true;
+    try { await request(`/api/painel/channels/${encodeURIComponent(channel.id)}`, { method: 'DELETE' }); state.managedChannels = (await request('/api/painel/channels')).channels; renderChannels(data); notice(`Canal #${channel.name} excluído.`); }
+    catch (error) { notice(error.message, true); button.disabled = false; }
+  }));
+  byId('channel-search').addEventListener('input', event => {
+    const query = event.currentTarget.value.trim().toLocaleLowerCase('pt-BR');
+    document.querySelectorAll('[data-channel-row]').forEach(row => { row.hidden = !row.textContent.toLocaleLowerCase('pt-BR').includes(query); });
+  });
+}
+
+function openChannelDialog(channel = null) {
+  const form = byId('channel-form');
+  const categories = state.managedChannels.filter(item => item.type === 4 && item.id !== channel?.id);
+  form.dataset.id = channel?.id ?? '';
+  byId('channel-dialog-title').textContent = channel ? 'Editar ou mover canal' : 'Criar canal';
+  byId('channel-name').value = channel?.name ?? '';
+  byId('channel-type').value = channel ? ({ 0: 'text', 2: 'voice', 4: 'category', 5: 'announcement' })[channel.type] : 'text';
+  byId('channel-type').disabled = Boolean(channel);
+  byId('channel-topic').value = channel?.topic ?? '';
+  byId('channel-topic').disabled = channel?.type === 4 || channel?.type === 2;
+  byId('channel-parent').innerHTML = `<option value="">Sem categoria</option>${categories.map(item => `<option value="${escapeHtml(item.id)}" ${channel?.parentId === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}`;
+  byId('channel-parent').disabled = channel?.type === 4;
+  byId('channel-position').value = channel?.position ?? 0;
+  byId('channel-error').textContent = '';
+  byId('channel-dialog').showModal();
+  byId('channel-name').focus();
 }
 
 function renderConfig() {
@@ -567,6 +602,7 @@ async function refresh() {
   state.data = data;
   if (state.page === 'overview') state.commerce = await request('/api/painel/commerce');
   if (state.page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
+  if (state.page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
   if (state.page === 'payments') {
     const [paymentData, mercadoPago] = await Promise.all([
       request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')
@@ -593,6 +629,7 @@ async function navigateToPage(page) {
   try {
     if (page === 'overview') state.commerce = await request('/api/painel/commerce');
     if (page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
+    if (page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
     if (page === 'payments') {
       const [paymentData, mercadoPago] = await Promise.all([request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')]);
       state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
@@ -701,6 +738,26 @@ byId('announcement-form').addEventListener('submit', async event => {
 });
 byId('close-announcement').addEventListener('click', () => byId('announcement-dialog').close());
 byId('cancel-announcement').addEventListener('click', () => byId('announcement-dialog').close());
+byId('close-channel').addEventListener('click', () => byId('channel-dialog').close());
+byId('cancel-channel').addEventListener('click', () => byId('channel-dialog').close());
+byId('channel-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const channelId = form.dataset.id;
+  const payload = { name: byId('channel-name').value.trim(), type: byId('channel-type').value,
+    topic: byId('channel-topic').value.trim(), parentId: byId('channel-parent').value || null,
+    position: Number(byId('channel-position').value) };
+  const button = byId('save-channel'); button.disabled = true;
+  try {
+    const result = await request(channelId ? `/api/painel/channels/${encodeURIComponent(channelId)}` : '/api/painel/channels', {
+      method: channelId ? 'PATCH' : 'POST', body: JSON.stringify(payload)
+    });
+    state.managedChannels = (await request('/api/painel/channels')).channels;
+    byId('channel-dialog').close(); renderChannels(state.data);
+    notice(channelId ? 'Canal atualizado.' : `Canal #${result.channel.name} criado.`);
+  } catch (error) { byId('channel-error').textContent = error.message; }
+  finally { button.disabled = false; }
+});
 byId('method-type').addEventListener('change', updateMethodFields);
 byId('close-dialog').addEventListener('click', () => byId('method-dialog').close());
 byId('cancel-dialog').addEventListener('click', () => byId('method-dialog').close());

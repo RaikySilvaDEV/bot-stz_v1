@@ -105,16 +105,25 @@ export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveL
 }
 
 export function gerarPayloadsLoop() {
-    const saudacao = getSaudacaoDinamica();
     const settings = getSettings();
+    const saudacao = getSaudacaoDinamica(new Date(), settings.timezone);
+    const hora = getScheduleDateParts(new Date(), settings.timezone).hour;
+    const greetingImage = path.join(PATHS.greetingImages, hora < 12 ? 'bom-dia.png' : hora < 18 ? 'boa-tarde.png' : 'boa-noite.png');
+    const greetingFile = fs.existsSync(greetingImage) ? greetingImage : null;
+    const greetingName = path.basename(greetingImage);
+    const greetingEmbed = greetingFile ? { image: { url: `attachment://${greetingName}` } } : null;
     const allowedMentions = settings.everyoneMentions ? { parse: ['everyone'] } : { parse: [] };
+    const greetingPayload = content => ({
+        content, allowedMentions,
+        ...(greetingFile ? { files: [new AttachmentBuilder(greetingFile, { name: greetingName })], embeds: [greetingEmbed] } : {})
+    });
     const productLines = PRODUCTS.map((product, index) => `• **PRODUTO ${index + 1}:** <#${product.channelId}>`).join('\n');
     return {
-        payloadComprasOnline: { content: `${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n${productLines}\n\n@everyone`, allowedMentions },
-        payloadVendasSuporte: { content: `${saudacao}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone`, allowedMentions },
-        payloadSugestao: { content: `${saudacao}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone`, allowedMentions },
+        payloadComprasOnline: greetingPayload(`${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n${productLines}\n\n@everyone`),
+        payloadVendasSuporte: greetingPayload(`${saudacao}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone`),
+        payloadSugestao: greetingPayload(`${saudacao}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone`),
         payloadNovidadesCargos: { content: `# ✨ NOVIDADES NA COMMUNITY FOR FIVEM! ✨\nAtualizamos nossos cargos e vantagens!\n\n@everyone`, allowedMentions },
-        payloadInfoPrecision: { content: `${saudacao}\n\n⚡ **BOT ONLINE • INFORMAÇÕES SOBRE O PRECISIONFIX**\n\nO bot está online.\n\n🔹 **Faça sua verificação:**\n<#${settings.channels.verification}>\n\n🚀 **Adquira o PrecisionFix:**\n<#${PRODUCTS[0].channelId}>\n\n> ⚠️ O acesso do PrecisionFix dura **5 dias**.\n\n@everyone`, allowedMentions }
+        payloadInfoPrecision: greetingPayload(`${saudacao}\n\n⚡ **BOT ONLINE • INFORMAÇÕES SOBRE O PRECISIONFIX**\n\nO bot está online.\n\n🔹 **Faça sua verificação:**\n<#${settings.channels.verification}>\n\n🚀 **Adquira o PrecisionFix:**\n<#${PRODUCTS[0].channelId}>\n\n> ⚠️ O acesso do PrecisionFix dura **5 dias**.\n\n@everyone`)
     };
 }
 
