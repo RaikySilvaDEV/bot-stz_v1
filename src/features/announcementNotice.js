@@ -9,13 +9,17 @@ export const ANNOUNCEMENT_NOTICE_TEXT = [
     'Quem enviar mensagens aqui poderá receber banimento. Esta medida ajuda a conter self-bots que espalham spam pelos canais do servidor para tentar infectar outros usuários.'
 ].join('\n');
 
+export function normalizeAnnouncementChannelName(name) {
+    return String(name ?? '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]/g, '');
+}
+
 export async function publicarAvisoCanalRestrito() {
     const guild = client.guilds.cache.get(GUILD_ID) ?? await client.guilds.fetch(GUILD_ID);
     const channels = await guild.channels.fetch();
     const targets = [...channels.values()].filter(channel =>
         channel &&
         [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type) &&
-        channel.name.toLocaleLowerCase('pt-BR') === 'armadilha'
+        normalizeAnnouncementChannelName(channel.name) === 'armadilha'
     );
     if (targets.length !== 1) {
         throw new Error(targets.length
