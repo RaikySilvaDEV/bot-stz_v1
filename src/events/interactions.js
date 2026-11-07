@@ -3,7 +3,7 @@ import {
 } from 'discord.js';
 import { client } from '../client.js';
 import { CARGO_VERIFICADO_ID, CARGO_STAFF_SUPORTE_ID } from '../config/constants.js';
-import { getSettings } from '../repositories/settingsRepository.js';
+import { getSettings, updateSettings } from '../repositories/settingsRepository.js';
 import { getTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
 import { logAction } from '../services/audit.js';
 import { archiveAndCloseTicket } from '../services/ticketClosure.js';
@@ -17,6 +17,33 @@ import { tratarAdminLoja } from '../features/commerceAdmin.js';
 import { tratarInteracaoFeedback } from '../features/commerceFeedback.js';
 
 const ticketsEmCriacao = new Set();
+let criandoCategoriaCompras = null;
+
+async function obterCategoriaCompras(guild) {
+    let settings = getSettings();
+    let configurada = settings.channels.purchaseCategory
+        ? await guild.channels.fetch(settings.channels.purchaseCategory).catch(() => null)
+        : null;
+    if (configurada?.type !== ChannelType.GuildCategory && !criandoCategoriaCompras) {
+        criandoCategoriaCompras = (async () => {
+            const category = await guild.channels.create({ name: '🛒・compras', type: ChannelType.GuildCategory });
+            settings = updateSettings({ channels: { purchaseCategory: category.id } });
+            console.info(`[tickets] Categoria exclusiva de compras configurada: ${category.name} (${category.id}).`);
+            return settings.channels.purchaseCategory;
+        })().finally(() => { criandoCategoriaCompras = null; });
+    }
+    const categoryId = configurada?.type === ChannelType.GuildCategory ? configurada.id : await criandoCategoriaCompras;
+    const supportCategoryId = settings.channels.supportCategory;
+    if (supportCategoryId && categoryId !== supportCategoryId) {
+        const purchaseTickets = guild.channels.cache.filter(channel => channel.type === ChannelType.GuildText &&
+            channel.parentId === supportCategoryId && channel.topic?.includes('ticket-type:compra'));
+        for (const channel of purchaseTickets.values()) {
+            await channel.setParent(categoryId, { lockPermissions: false });
+            console.info(`[tickets] Ticket de compra movido para a categoria exclusiva: ${channel.name}.`);
+        }
+    }
+    return categoryId;
+}
 
 async function criarTicketPrivado(interaction, type, selectedOption = null) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -26,7 +53,8 @@ async function criarTicketPrivado(interaction, type, selectedOption = null) {
     try {
         await guild.channels.fetch();
         const settings = getSettings();
-        const parentId = type === 'purchase' ? (settings.channels.purchaseCategory || settings.channels.supportCategory) : settings.channels.supportCategory;
+        const parentId = type === 'purchase' ? await obterCategoriaCompras(guild) : settings.channels.supportCategory;
+        if (!parentId) throw new Error('Configure a categoria de atendimento no painel antes de abrir tickets.');
         const ticketType = type === 'purchase' ? 'compra' : 'suporte';
         const topic = `ticket-owner:${interaction.user.id};ticket-type:${ticketType}`;
         const existing = guild.channels.cache.find(channel => channel.parentId === parentId && channel.type === ChannelType.GuildText &&
