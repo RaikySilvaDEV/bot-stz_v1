@@ -8,7 +8,58 @@ import { generateAssistantResponse, getAssistantStatus } from '../services/assis
 const ultimoAtendimentoPorCanal = new Map();
 const ultimaMensagemTentadaPorCanal = new Map();
 const avisoIaIndisponivelPorCanal = new Set();
+const saudacoesIniciaisEmAndamento = new Set();
 let varreduraEmAndamento = false;
+
+const PROMPT_SISTEMA_TICKET = `Você é o assistente virtual profissional da Community for FiveM.
+Interprete gírias e abreviações informais do usuário (como 'q', 'oq', 'n', 'ss', 'tô').
+Assuntos principais: FiveM, PrecisionFix (otimização FiveM, ativação e acesso), compras e suporte da comunidade.
+Responda em português do Brasil, com clareza e sem inventar preços, disponibilidade, pagamentos confirmados ou configurações.
+Nunca peça senha, token, chave Pix ou dados pessoais desnecessários. Não confirme pagamentos por comprovantes.
+Se a dúvida ultrapassar seu atendimento automático ou o cliente pedir uma pessoa, inclua obrigatoriamente a palavra CHAVE_HUMANO na resposta.`;
+
+export async function iniciarAtendimentoAutomatico(channel, userId, selectedOption = null) {
+    if (!channel || saudacoesIniciaisEmAndamento.has(channel.id)) return;
+    saudacoesIniciaisEmAndamento.add(channel.id);
+    try {
+        if (!getSettings().automations.aiResponses) return;
+        const status = await getAssistantStatus();
+        if (!status.ready) {
+            await channel.send('⚠️ O atendimento automático está temporariamente indisponível. A equipe responderá por este canal.');
+            await logAction(channel.guild, client.user.id, 'Atendimento automático indisponível ao abrir ticket', `Canal ${channel.name}`);
+            return;
+        }
+
+        await channel.sendTyping();
+        const assunto = selectedOption?.label ?? 'Atendimento geral';
+        const detalhes = selectedOption?.description?.slice(0, 600) ?? '';
+        const mensagemInicial = [
+            'Um cliente acabou de abrir um novo ticket de atendimento.',
+            `Assunto selecionado: ${assunto}.`,
+            detalhes ? `Descrição do assunto: ${detalhes}` : '',
+            'Escreva a primeira mensagem de atendimento: cumprimente o cliente, diga brevemente em que temas pode ajudar e pergunte o que ele precisa. No máximo 3 frases; não invente dados do cliente ou do servidor.'
+        ].filter(Boolean).join('\n');
+        let resposta = await generateAssistantResponse(PROMPT_SISTEMA_TICKET, [{ role: 'user', content: mensagemInicial }]);
+
+        if (resposta.includes('CHAVE_HUMANO') || resposta.length < 10) {
+            addNotifiedTicketId(channel.id);
+            await channel.send({ content: `Olá <@${userId}>! Vou chamar a equipe para continuar seu atendimento.`, allowedMentions: { users: [userId], parse: [] } });
+            await logAction(channel.guild, client.user.id, 'Ticket encaminhado à equipe na abertura', `Canal ${channel.name}`);
+            return;
+        }
+
+        resposta = resposta.replaceAll('CHAVE_HUMANO', '').trim();
+        await channel.send({ content: `Olá <@${userId}>! ${resposta}`.slice(0, 1900), allowedMentions: { users: [userId], parse: [] } });
+        avisoIaIndisponivelPorCanal.delete(channel.id);
+        await logAction(channel.guild, client.user.id, 'IA iniciou atendimento ao abrir ticket', `Canal ${channel.name}`);
+    } catch (error) {
+        console.error(`[tickets:${channel.id}] Falha ao iniciar atendimento automático:`, error.message);
+        await channel.send('⚠️ Não consegui iniciar o atendimento automático agora. A equipe responderá por este canal.').catch(() => {});
+        await logAction(channel.guild, client.user.id, 'Falha ao iniciar atendimento automático', `Canal ${channel.name}: ${error.message}`).catch(() => {});
+    } finally {
+        saudacoesIniciaisEmAndamento.delete(channel.id);
+    }
+}
 
 client.on('channelDelete', channel => {
     try {
@@ -68,14 +119,9 @@ export function iniciarVarreduraTicketsOrfaos() {
                         if (!botJaRespondeuRecente) {
                             await canalTicket.sendTyping();
 
-                            const promptSistema = `Você é o assistente virtual profissional da Community for FiveM.
-Interprete gírias e abreviações informais do usuário (como 'q', 'oq', 'n', 'ss', 'tô').
-Assuntos principais: PrecisionFix (otimização FiveM, key de 5 dias, ativação) e dúvidas de compra/suporte.
-Responda com todas as informações necessárias. Se a dúvida ultrapassar o seu atendimento automático ou o cliente insistir, inclua obrigatoriamente a palavra CHAVE_HUMANO na resposta.`;
-
                             let respostaIA;
                             try {
-                                respostaIA = await generateAssistantResponse(promptSistema, msgsOrdenadas.slice(0, 8).reverse().map(message => ({
+                                respostaIA = await generateAssistantResponse(PROMPT_SISTEMA_TICKET, msgsOrdenadas.slice(0, 8).reverse().map(message => ({
                                     role: message.author.bot ? 'assistant' : 'user',
                                     content: message.content || '[mensagem com anexo]'
                                 })), { userId: ultimaMsg.author.id });
