@@ -381,6 +381,8 @@ dialog::backdrop { background: rgb(2 4 8 / 74%); }
 .announcement-search-wrap input { min-height: 36px; padding: 7px 0; border: 0; background: transparent; box-shadow: none; font-size: 11px; }
 .announcement-list { display: grid; gap: 10px; }
 .announcement-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.announcement-card-image { display: block; width: min(100%, 480px); max-height: 220px; margin: 12px 0; border: 1px solid var(--line); border-radius: 11px; object-fit: cover; }
+.announcement-dialog-image { display: block; width: 100%; max-height: 220px; border: 1px solid var(--line); border-radius: 10px; object-fit: contain; background: #0c0f14; }
 .announcement-main { display: flex; min-width: 0; gap: 12px; }
 .announcement-card-icon { flex-basis: 34px; width: 34px; height: 34px; border: 1px solid var(--line); color: #aab6cd; background: #1b222d; }
 .announcement-card-icon .icon-mask { width: 16px; height: 16px; }

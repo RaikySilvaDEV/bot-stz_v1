@@ -117,6 +117,9 @@ function openAnnouncementDialog(announcement = null) {
   byId('announcement-dialog-title').textContent = announcement ? 'Editar aviso' : 'Novo aviso';
   byId('announcement-title').value = announcement?.titulo ?? '';
   byId('announcement-text').value = announcement?.texto ?? '';
+  byId('announcement-image').value = announcement?.imageUrl ?? '';
+  byId('announcement-image-preview').hidden = !announcement?.imageUrl;
+  if (announcement?.imageUrl) byId('announcement-image-preview').src = announcement.imageUrl;
   byId('announcement-error').textContent = '';
   byId('save-announcement').innerHTML = announcement ? 'Salvar alterações' : `${icon('megaphone')} Publicar aviso`;
   byId('announcement-dialog').showModal();
@@ -127,7 +130,7 @@ function renderAnnouncements() {
   const channel = state.data.channels.find(item => item.key === 'fivemAnnouncements');
   byId('content').innerHTML = `<section class="announcement-intro"><div class="announcement-intro-icon">${icon('megaphone')}</div><div><h2>Avisos do servidor</h2><p>Gerencie o que aparece em <strong>${escapeHtml(channel?.name ? `#${channel.name}` : 'canal FiveM configurado')}</strong>. Ao salvar, o Discord é atualizado junto com o registro local.</p></div><button class="primary" id="new-announcement" type="button">${icon('plus')} Novo aviso</button></section>
     <div class="section-head"><div><h2>Avisos publicados</h2><p class="detail">${state.announcements.length} aviso(s) no catálogo.</p></div><label class="announcement-search-wrap">${icon('search')}<input id="announcement-search" type="search" placeholder="Buscar aviso…" aria-label="Buscar avisos"></label></div>
-    <div id="announcement-list" class="announcement-list">${state.announcements.length ? state.announcements.map(item => `<article class="card announcement-card" data-search-row><div class="announcement-main"><div class="announcement-card-icon">${icon('file-text')}</div><div class="announcement-copy"><div class="announcement-card-heading"><h3>${escapeHtml(item.titulo)}</h3>${badge('Publicado', 'ok')}</div><p>${escapeHtml(item.texto)}</p><small>Atualizado em ${escapeHtml(new Date(item.updatedAt ?? item.createdAt).toLocaleString('pt-BR'))}</small></div></div><div class="announcement-actions"><button class="tiny edit-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('file-text')} Editar</button><button class="tiny danger delete-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('x')} Remover</button></div></article>`).join('') : `<div class="empty-state"><div class="empty-state-icon">${icon('megaphone')}</div><h3>Nenhum aviso cadastrado</h3><p>Crie seu primeiro aviso para publicar uma mensagem no canal FiveM.</p><button class="primary" id="new-announcement-empty" type="button">${icon('plus')} Criar primeiro aviso</button></div>`}</div><p id="announcement-empty-search" class="empty" hidden>Nenhum aviso corresponde à busca.</p>`;
+    <div id="announcement-list" class="announcement-list">${state.announcements.length ? state.announcements.map(item => `<article class="card announcement-card" data-search-row><div class="announcement-main"><div class="announcement-card-icon">${icon('file-text')}</div><div class="announcement-copy"><div class="announcement-card-heading"><h3>${escapeHtml(item.titulo)}</h3>${badge(item.imageUrl ? 'Com imagem' : 'Publicado', 'ok')}</div><p>${escapeHtml(item.texto)}</p>${item.imageUrl ? `<img class="announcement-card-image" src="${escapeHtml(item.imageUrl)}" alt="Prévia do aviso ${escapeHtml(item.titulo)}" loading="lazy">` : ''}<small>Atualizado em ${escapeHtml(new Date(item.updatedAt ?? item.createdAt).toLocaleString('pt-BR'))}</small></div></div><div class="announcement-actions"><button class="tiny edit-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('file-text')} Editar</button><button class="tiny danger delete-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('x')} Remover</button></div></article>`).join('') : `<div class="empty-state"><div class="empty-state-icon">${icon('megaphone')}</div><h3>Nenhum aviso cadastrado</h3><p>Crie seu primeiro aviso para publicar uma mensagem no canal FiveM.</p><button class="primary" id="new-announcement-empty" type="button">${icon('plus')} Criar primeiro aviso</button></div>`}</div><p id="announcement-empty-search" class="empty" hidden>Nenhum aviso corresponde à busca.</p>`;
   byId('new-announcement')?.addEventListener('click', () => openAnnouncementDialog());
   byId('new-announcement-empty')?.addEventListener('click', () => openAnnouncementDialog());
   byId('announcement-search')?.addEventListener('input', event => {
@@ -149,9 +152,10 @@ function renderAnnouncements() {
 }
 
 function renderAssistant() {
-  const isReady = Boolean(state.data.services.gemini?.configured);
+  const assistant = state.data.services.aiAssistant;
+  const isReady = Boolean(assistant?.ready);
   const messages = state.assistantMessages.map(message => `<article class="assistant-message ${message.role === 'user' ? 'from-user' : message.role === 'error' ? 'from-error' : 'from-assistant'}"><span class="assistant-avatar">${message.role === 'user' ? icon('users') : icon('sparkles')}</span><div><div class="assistant-speaker">${message.role === 'user' ? 'Você' : message.role === 'error' ? 'Não foi possível responder' : 'Assistente STZ'}</div><p>${escapeHtml(message.text)}</p></div></article>`).join('');
-  byId('content').innerHTML = `<section class="assistant-shell"><header class="assistant-header"><div class="assistant-avatar large">${icon('sparkles')}</div><div><p class="eyebrow">ASSISTENTE DO PAINEL</p><h2>Como posso ajudar?</h2><p>Posso explicar as opções, ajudar a encontrar configurações e orientar o próximo passo.</p></div>${badge(isReady ? 'Gemini conectado' : 'Configure GEMINI_API_KEY', isReady ? 'ok' : 'warn')}</header><div class="assistant-suggestions"><span>EXPERIMENTE</span><button type="button" data-prompt="Como cadastro, edito e removo um aviso?">${icon('megaphone')} Gerenciar avisos</button><button type="button" data-prompt="Como configuro um produto e a entrega automática?">${icon('store')} Configurar a loja</button><button type="button" data-prompt="Quais etapas faltam para ativar o Mercado Pago?">${icon('credit-card')} Pagamentos</button></div><div id="assistant-transcript" class="assistant-transcript">${messages || `<div class="assistant-welcome"><div class="assistant-welcome-icon">${icon('messages-square')}</div><h3>Seu apoio dentro do painel</h3><p>Faça uma pergunta sobre configurações, canais, avisos, produtos ou automações. A resposta considera apenas um resumo do estado atual.</p><span>${icon('shield-check')} Credenciais e IDs de compradores não são enviados como contexto.</span></div>`}</div><form id="assistant-form" class="assistant-composer"><textarea id="assistant-input" maxlength="1200" rows="2" placeholder="Escreva sua pergunta…" aria-label="Pergunte à assistente" ${isReady ? '' : 'disabled'}></textarea><button class="primary" type="submit" ${isReady ? '' : 'disabled'}>${icon('send')} Enviar</button></form><p class="assistant-disclosure">As mensagens da assistente são processadas pelo Gemini usando a chave já configurada no servidor. Não inclua senhas, tokens, chaves Pix ou dados pessoais.</p></section>`;
+  byId('content').innerHTML = `<section class="assistant-shell"><header class="assistant-header"><div class="assistant-avatar large">${icon('sparkles')}</div><div><p class="eyebrow">ASSISTENTE LOCAL DO PAINEL</p><h2>Como posso ajudar?</h2><p>${escapeHtml(assistant?.detail ?? 'Configure o Ollama local no computador do bot.')}</p></div>${badge(isReady ? `Ollama · ${assistant.model}` : 'Modelo local indisponível', isReady ? 'ok' : 'warn')}</header><div class="assistant-suggestions"><span>EXPERIMENTE</span><button type="button" data-prompt="Como cadastro, edito e removo um aviso?">${icon('megaphone')} Gerenciar avisos</button><button type="button" data-prompt="Como configuro um produto e a entrega automática?">${icon('store')} Configurar a loja</button><button type="button" data-prompt="Quais etapas faltam para ativar o Mercado Pago?">${icon('credit-card')} Pagamentos</button></div><div id="assistant-transcript" class="assistant-transcript">${messages || `<div class="assistant-welcome"><div class="assistant-welcome-icon">${icon('messages-square')}</div><h3>Seu apoio dentro do painel</h3><p>Faça uma pergunta sobre configurações, canais, avisos, produtos ou automações. A resposta considera apenas um resumo do estado atual.</p><span>${icon('shield-check')} O modelo roda no mesmo computador do bot; mensagens não são enviadas a uma API externa.</span></div>`}</div><form id="assistant-form" class="assistant-composer"><textarea id="assistant-input" maxlength="1200" rows="2" placeholder="Escreva sua pergunta…" aria-label="Pergunte à assistente" ${isReady ? '' : 'disabled'}></textarea><button class="primary" type="submit" ${isReady ? '' : 'disabled'}>${icon('send')} Enviar</button></form><p class="assistant-disclosure">A IA usa o Ollama e o modelo ${escapeHtml(assistant?.model ?? 'qwen2.5:3b')} instalado localmente no computador que executa o bot. Não inclui tokens, senhas nem chaves Pix nas perguntas do assistente.</p></section>`;
   byId('assistant-form')?.addEventListener('submit', async event => {
     event.preventDefault();
     const input = byId('assistant-input'); const message = input.value.trim();
@@ -181,7 +185,7 @@ function renderAssistant() {
   if (messages) byId('assistant-transcript').scrollTop = byId('assistant-transcript').scrollHeight;
 }
 
-function serviceName(key) { return ({ discord: 'Gateway Discord', api: 'API e painel web', gemini: 'Atendimento Gemini', ticketCreation: 'Criação de tickets' })[key] ?? key; }
+function serviceName(key) { return ({ discord: 'Gateway Discord', api: 'API e painel web', aiAssistant: 'Autoatendimento local (Ollama)', ticketCreation: 'Criação de tickets' })[key] ?? key; }
 function formatUptime(seconds) { const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60); return `${d}d ${h}h ${m}min`; }
 
 function renderServices(data) {
@@ -724,7 +728,7 @@ document.addEventListener('keydown', event => {
 byId('announcement-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget; const id = form.dataset.id;
-  const payload = { titulo: byId('announcement-title').value.trim(), texto: byId('announcement-text').value.trim() };
+  const payload = { titulo: byId('announcement-title').value.trim(), texto: byId('announcement-text').value.trim(), imageUrl: byId('announcement-image').value.trim() || null };
   const button = byId('save-announcement'); button.disabled = true; byId('announcement-error').textContent = '';
   try {
     const result = await request(id ? `/api/painel/announcements/${encodeURIComponent(id)}` : '/api/painel/announcements', {
@@ -738,6 +742,12 @@ byId('announcement-form').addEventListener('submit', async event => {
 });
 byId('close-announcement').addEventListener('click', () => byId('announcement-dialog').close());
 byId('cancel-announcement').addEventListener('click', () => byId('announcement-dialog').close());
+byId('announcement-image').addEventListener('input', event => {
+  const preview = byId('announcement-image-preview');
+  const value = event.currentTarget.value.trim();
+  preview.hidden = !value;
+  if (value) preview.src = value;
+});
 byId('close-channel').addEventListener('click', () => byId('channel-dialog').close());
 byId('cancel-channel').addEventListener('click', () => byId('channel-dialog').close());
 byId('channel-form').addEventListener('submit', async event => {

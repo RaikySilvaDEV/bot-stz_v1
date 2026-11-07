@@ -1,6 +1,6 @@
 import {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, ModalBuilder,
-    StringSelectMenuBuilder, TextInputBuilder, TextInputStyle
+    StringSelectMenuBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder
 } from 'discord.js';
 import { client } from '../client.js';
 import { isServerManager } from '../services/authorization.js';
@@ -14,14 +14,29 @@ export function listarAnunciosFiveM() {
     return getAnnouncements();
 }
 
-function validarDadosAnuncio(titulo, texto) {
+function validarDadosAnuncio(titulo, texto, imageUrl = null) {
     if (typeof titulo !== 'string' || !titulo.trim() || titulo.trim().length > 100) {
         throw new TypeError('O título é obrigatório e deve ter no máximo 100 caracteres.');
     }
     if (typeof texto !== 'string' || !texto.trim() || texto.trim().length > 1800) {
         throw new TypeError('O texto é obrigatório e deve ter no máximo 1800 caracteres.');
     }
-    return { titulo: titulo.trim(), texto: texto.trim() };
+    if (imageUrl !== null && imageUrl !== undefined && imageUrl !== '') {
+        if (typeof imageUrl !== 'string' || imageUrl.length > 500) throw new TypeError('O endereço da imagem pode ter até 500 caracteres.');
+        let url;
+        try { url = new URL(imageUrl); } catch { throw new TypeError('Informe um endereço de imagem/GIF válido.'); }
+        if (url.protocol !== 'https:') throw new TypeError('A imagem/GIF precisa usar HTTPS.');
+        imageUrl = url.href;
+    } else imageUrl = null;
+    return { titulo: titulo.trim(), texto: texto.trim(), imageUrl };
+}
+
+function montarPayloadAnuncio({ titulo, texto, imageUrl }) {
+    return {
+        content: `# ${titulo}\n\n${texto}`,
+        embeds: imageUrl ? [new EmbedBuilder().setColor(0x5865F2).setImage(imageUrl)] : [],
+        allowedMentions: { parse: [] }
+    };
 }
 
 async function obterCanalAnuncios() {
@@ -32,12 +47,12 @@ async function obterCanalAnuncios() {
 }
 
 export async function criarAnuncioFiveM(dados) {
-    const { titulo, texto } = validarDadosAnuncio(dados.titulo, dados.texto);
+    const { titulo, texto, imageUrl } = validarDadosAnuncio(dados.titulo, dados.texto, dados.imageUrl);
     const canal = await obterCanalAnuncios();
-    const mensagem = await canal.send({ content: `# ${titulo}\n\n${texto}`, allowedMentions: { parse: [] } });
+    const mensagem = await canal.send(montarPayloadAnuncio({ titulo, texto, imageUrl }));
     let anuncio;
     try {
-        anuncio = addAnnouncement({ id: mensagem.id, mensagemId: mensagem.id, titulo, texto });
+        anuncio = addAnnouncement({ id: mensagem.id, mensagemId: mensagem.id, titulo, texto, imageUrl });
     } catch (error) {
         await mensagem.delete().catch(() => {});
         throw error;
@@ -47,14 +62,15 @@ export async function criarAnuncioFiveM(dados) {
 }
 
 export async function atualizarAnuncioFiveM(id, dados, actorId = 'sistema') {
-    const { titulo, texto } = validarDadosAnuncio(dados.titulo, dados.texto);
     const anuncio = getAnnouncements().find(item => item.id === id);
     if (!anuncio) return null;
+    const imageUrl = dados.imageUrl === undefined ? anuncio.imageUrl ?? null : dados.imageUrl;
+    const { titulo, texto, imageUrl: validatedImageUrl } = validarDadosAnuncio(dados.titulo, dados.texto, imageUrl);
     const canal = await obterCanalAnuncios();
     const mensagem = await canal.messages.fetch(anuncio.mensagemId).catch(() => null);
     if (!mensagem) throw new Error('A mensagem publicada não foi encontrada no Discord.');
-    await mensagem.edit({ content: `# ${titulo}\n\n${texto}`, allowedMentions: { parse: [] } });
-    const atualizado = updateAnnouncement(id, { titulo, texto });
+    await mensagem.edit(montarPayloadAnuncio({ titulo, texto, imageUrl: validatedImageUrl }));
+    const atualizado = updateAnnouncement(id, { titulo, texto, imageUrl: validatedImageUrl });
     await logAction(canal.guild, actorId, 'Anúncio FiveM editado', titulo);
     return atualizado;
 }

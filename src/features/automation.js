@@ -165,8 +165,11 @@ export async function dispararWallpaperDiario() {
     const diaAtual = estado.diaAtual;
     const arquivoPath = path.join(PATHS.wallpapers, `${diaAtual}.png`);
     if (!fs.existsSync(arquivoPath)) {
-        console.warn(`[wallpapers] Arquivo ausente: ${arquivoPath}. O dia não foi avançado.`);
-        return false;
+        const proximoDia = diaAtual >= 105 ? 1 : diaAtual + 1;
+        console.info(`[wallpapers] Arquivo ausente: ${arquivoPath}. Pulando o dia ${diaAtual} e continuando pelo dia ${proximoDia} amanhã.`);
+        saveWallpaperState({ diaAtual: proximoDia });
+        markWallpaperDateCompleted(dateKey);
+        return true;
     }
 
     const canal = await guild.channels.fetch(settings.channels.wallpapers).catch(() => null);

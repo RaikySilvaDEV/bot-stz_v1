@@ -17,12 +17,13 @@ export function getAnnouncements() {
     return validateAnnouncementList(readJsonData(FILE_NAME, [], LEGACY_FILE));
 }
 
-export function addAnnouncement({ id, mensagemId, titulo, texto }) {
+export function addAnnouncement({ id, mensagemId, titulo, texto, imageUrl = null }) {
     const announcement = {
         id: id || randomUUID(),
         mensagemId,
         titulo,
         texto,
+        imageUrl,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
@@ -33,11 +34,11 @@ export function addAnnouncement({ id, mensagemId, titulo, texto }) {
     return announcement;
 }
 
-export function updateAnnouncement(id, { titulo, texto }) {
+export function updateAnnouncement(id, { titulo, texto, imageUrl = null }) {
     const announcements = getAnnouncements();
     const updated = announcements.find(item => item.id === id) ?? null;
     if (!updated) return null;
-    Object.assign(updated, { titulo, texto, updatedAt: new Date().toISOString() });
+    Object.assign(updated, { titulo, texto, imageUrl, updatedAt: new Date().toISOString() });
     writeJsonData(FILE_NAME, announcements);
     return updated;
 }

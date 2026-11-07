@@ -117,6 +117,8 @@
       <div class="dialog-head"><div><p class="eyebrow">AVISOS DO SERVIDOR</p><h2 id="announcement-dialog-title">Novo aviso</h2></div><button type="button" id="close-announcement" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
       <label for="announcement-title">Título <span class="field-limit">até 100 caracteres</span></label><input id="announcement-title" maxlength="100" required>
       <label for="announcement-text">Mensagem <span class="field-limit">até 1800 caracteres</span></label><textarea id="announcement-text" rows="7" maxlength="1800" required></textarea>
+      <label for="announcement-image">Imagem ou GIF (URL HTTPS, opcional)</label><input id="announcement-image" type="url" maxlength="500" placeholder="https://exemplo.com/imagem.gif"><img id="announcement-image-preview" class="announcement-dialog-image" alt="Prévia da imagem ou GIF do aviso" hidden>
+      <p class="detail">O endereço deve apontar para uma imagem acessível publicamente. GIFs animados também são aceitos.</p>
       <p id="announcement-error" class="error" aria-live="polite"></p>
       <p class="detail">Ao salvar, o aviso também será publicado ou atualizado no canal FiveM configurado.</p>
       <div class="dialog-actions"><button type="button" id="cancel-announcement" class="secondary">Cancelar</button><button id="save-announcement" class="primary" type="submit">Publicar aviso</button></div>

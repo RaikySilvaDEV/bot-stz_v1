@@ -1,10 +1,12 @@
 import { ChannelType } from 'discord.js';
-import { ai, client } from '../client.js';
+import { client } from '../client.js';
 import { GUILD_ID, CANAIS_IGNORADOS_SUPORTE, MEU_ID_USUARIO } from '../config/constants.js';
 import { addNotifiedTicketId, getNotifiedTicketIds, removeNotifiedTicketId } from '../repositories/stateRepository.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { logAction } from '../services/audit.js';
+import { generateAssistantResponse, getAssistantStatus } from '../services/assistantProvider.js';
 const ultimoAtendimentoPorCanal = new Map();
+const avisoIaIndisponivelPorCanal = new Set();
 let varreduraEmAndamento = false;
 
 client.on('channelDelete', channel => {
@@ -34,6 +36,7 @@ export function iniciarVarreduraTicketsOrfaos() {
             );
 
             const ticketsNotificados = getNotifiedTicketIds();
+            const assistantStatus = settings.automations.aiResponses ? await getAssistantStatus() : null;
 
             for (const [id, canalTicket] of tickets) {
                 try {
@@ -44,11 +47,11 @@ export function iniciarVarreduraTicketsOrfaos() {
                     const ultimaMsg = msgsOrdenadas[0];
 
                     if (!ultimaMsg.author.bot && settings.automations.aiResponses) {
-                        if (!ai) {
-                            if (!ticketsNotificados.includes(canalTicket.id)) {
-                                addNotifiedTicketId(canalTicket.id);
-                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: o atendimento automático está sem chave Gemini. A equipe precisa responder manualmente.`);
-                                await logAction(guild, client.user.id, 'IA indisponível', `Canal ${canalTicket.name}`);
+                        if (!assistantStatus?.ready) {
+                            if (!avisoIaIndisponivelPorCanal.has(canalTicket.id)) {
+                                avisoIaIndisponivelPorCanal.add(canalTicket.id);
+                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: o autoatendimento local está indisponível. ${assistantStatus?.detail ?? 'A equipe precisa responder manualmente.'}`);
+                                await logAction(guild, client.user.id, 'IA local indisponível', `Canal ${canalTicket.name}`);
                             }
                             continue;
                         }
@@ -66,25 +69,19 @@ Interprete gírias e abreviações informais do usuário (como 'q', 'oq', 'n', '
 Assuntos principais: PrecisionFix (otimização FiveM, key de 5 dias, ativação) e dúvidas de compra/suporte.
 Responda com todas as informações necessárias. Se a dúvida ultrapassar o seu atendimento automático ou o cliente insistir, inclua obrigatoriamente a palavra CHAVE_HUMANO na resposta.`;
 
-                            let response;
+                            let respostaIA;
                             try {
-                                response = await ai.models.generateContent({
-                                    model: 'gemini-3.8-flash',
-                                    contents: msgsOrdenadas.slice(0, 8).reverse().map(message => ({
-                                        role: message.author.bot ? 'model' : 'user',
-                                        parts: [{ text: message.content || '[mensagem com anexo]' }]
-                                    })),
-                                    config: { systemInstruction: promptSistema }
-                                });
+                                respostaIA = await generateAssistantResponse(promptSistema, msgsOrdenadas.slice(0, 8).reverse().map(message => ({
+                                    role: message.author.bot ? 'assistant' : 'user',
+                                    content: message.content || '[mensagem com anexo]'
+                                })));
                             } catch (error) {
-                                console.error(`[tickets:${canalTicket.id}] Gemini indisponível:`, error);
-                                addNotifiedTicketId(canalTicket.id);
-                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: não consegui consultar a IA neste atendimento. A equipe precisa responder manualmente.`);
-                                await logAction(guild, client.user.id, 'Falha na IA do ticket', `Canal ${canalTicket.name}`);
+                                console.error(`[tickets:${canalTicket.id}] IA local indisponível:`, error.message);
+                                avisoIaIndisponivelPorCanal.add(canalTicket.id);
+                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: não consegui consultar a IA local. A equipe precisa responder manualmente. (${error.message})`);
+                                await logAction(guild, client.user.id, 'Falha na IA local do ticket', `Canal ${canalTicket.name}`);
                                 continue;
                             }
-
-                            let respostaIA = (response.text || "").trim();
 
                             if (respostaIA.includes("CHAVE_HUMANO") || respostaIA.length < 10) {
                                 addNotifiedTicketId(canalTicket.id);
@@ -95,6 +92,7 @@ Responda com todas as informações necessárias. Se a dúvida ultrapassar o seu
 
                             respostaIA = respostaIA.replace("CHAVE_HUMANO", "").trim();
                             await ultimaMsg.reply({ content: respostaIA.slice(0, 1900), allowedMentions: { parse: [] } });
+                            avisoIaIndisponivelPorCanal.delete(canalTicket.id);
                             ultimoAtendimentoPorCanal.set(canalTicket.id, Date.now());
                         }
                     }

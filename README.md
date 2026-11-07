@@ -17,7 +17,7 @@ Os três produtos iniciais são Cargo Premium (R$ 12,00), Cargo Booster (R$ 7,00
 - Node.js 20 ou superior.
 - Um aplicativo de bot no Discord Developer Portal, convidado para o servidor com permissões de mensagens, canais, cargos, membros e comandos de aplicação necessários às funções ativadas.
 - `cloudflared` no `PATH` se for usar `npm start` com túnel Cloudflare automático.
-- Uma chave Gemini para respostas automáticas dos tickets e para a Assistente interna. Sem ela, o restante do bot pode iniciar, mas esses recursos de IA ficam indisponíveis.
+- Ollama instalado no mesmo computador do bot para autoatendimento e Assistente do painel. O modelo escolhido é baixado uma vez e roda localmente, sem chave de API externa.
 
 ## Instalação
 
@@ -26,7 +26,16 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Edite `.env` localmente e configure pelo menos `DISCORD_TOKEN`, `API_KEY` e uma senha forte para `DASHBOARD_PASSWORD`. Nunca envie esse arquivo pelo chat nem o adicione ao Git. `GEMINI_API_KEY` é opcional. O `.env` já está no `.gitignore`.
+Edite `.env` localmente e configure pelo menos `DISCORD_TOKEN`, `API_KEY` e uma senha forte para `DASHBOARD_PASSWORD`. Nunca envie esse arquivo pelo chat nem o adicione ao Git. `OLLAMA_MODEL` pode ser alterado se você baixar outro modelo. O `.env` já está no `.gitignore`.
+
+No computador do bot, instale o Ollama pelo instalador oficial e baixe o modelo leve padrão:
+
+```powershell
+irm https://ollama.com/install.ps1 | iex
+ollama pull qwen2.5:3b
+```
+
+O Ollama precisa continuar aberto no computador que executa o bot. O endpoint local padrão é `http://127.0.0.1:11434`; mensagens do autoatendimento não saem para um provedor externo.
 
 No Discord Developer Portal, habilite **Server Members Intent** e **Message Content Intent** se o bot usar os respectivos eventos e comandos. Depois confira a hierarquia: o cargo do bot precisa ficar acima dos cargos que ele entrega.
 
@@ -76,12 +85,12 @@ O painel (`/painel`) mostra estado do bot, automações, canais, loja, pagamento
 
 O botão **Abrir painel web** no painel administrativo do Discord cria um acesso de uso único com validade limitada. A interface usa ícones Lucide distribuídos localmente (`src/api/public/icons/`), sem depender de CDN, e oferece tema escuro e navegação adaptável.
 
-A Assistente do painel é consultiva: responde sobre o estado resumido do projeto, mas não altera configurações. Quando configurada, a pergunta é enviada ao Gemini. Não inclua tokens, senhas, chaves Pix ou dados de clientes nas perguntas.
+A Assistente do painel é consultiva: responde sobre o estado resumido do projeto, mas não altera configurações. Ela usa o modelo Ollama local e não precisa de chave de API. Confira a disponibilidade em **Serviços**. Não inclua tokens, senhas, chaves Pix ou dados de clientes nas perguntas.
 
 ## Recursos do bot
 
 - Verificação e boas-vindas de membros.
-- Tickets, transcrições e encaminhamento para atendimento humano; Gemini é opcional.
+- Tickets, transcrições, autoatendimento com Ollama local e encaminhamento para atendimento humano.
 - Parcerias e anúncios FiveM, com gerenciamento no Discord e no painel.
 - API REST protegida para criar, listar, editar e remover anúncios FiveM. Exemplos: [API-POSTMAN.md](API-POSTMAN.md).
 - Wallpapers, avisos programados, saudações e publicações dos armazéns CTZ e CTZ Boosters.
@@ -146,7 +155,8 @@ O repasse ao sócio usa a porcentagem configurada sobre cada pedido confirmado c
 | Variável | Uso |
 |---|---|
 | `DISCORD_TOKEN` | Token privado do bot. |
-| `GEMINI_API_KEY` | IA dos tickets e Assistente do painel (opcional). |
+| `OLLAMA_URL` | Endereço local do Ollama (padrão `http://127.0.0.1:11434`). |
+| `OLLAMA_MODEL` | Modelo Ollama já baixado (padrão `qwen2.5:3b`). |
 | `API_KEY` | Bearer da API de anúncios e fallback de senha do painel. |
 | `DASHBOARD_PASSWORD` | Senha dedicada ao painel (recomendado). |
 | `API_HOST`, `API_PORT` | Endereço local e porta HTTP. |
