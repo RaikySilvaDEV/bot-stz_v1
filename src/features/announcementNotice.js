@@ -13,13 +13,17 @@ export function normalizeAnnouncementChannelName(name) {
     return String(name ?? '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]/g, '');
 }
 
+export function isAnnouncementTargetChannelName(name) {
+    return normalizeAnnouncementChannelName(name).includes('armadilha');
+}
+
 export async function publicarAvisoCanalRestrito() {
     const guild = client.guilds.cache.get(GUILD_ID) ?? await client.guilds.fetch(GUILD_ID);
     const channels = await guild.channels.fetch();
     const targets = [...channels.values()].filter(channel =>
         channel &&
         [ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type) &&
-        normalizeAnnouncementChannelName(channel.name) === 'armadilha'
+        isAnnouncementTargetChannelName(channel.name)
     );
     if (targets.length !== 1) {
         throw new Error(targets.length
