@@ -30,13 +30,18 @@ export function listWallpapers() {
     const currentDay = getWallpaperState().diaAtual;
     const numbers = wallpaperNumbers();
     const files = fs.readdirSync(PATHS.wallpapers, { withFileTypes: true })
-        .filter(entry => entry.isFile() && /^(\d+)\.(png|jpe?g|webp|gif)$/i.test(entry.name))
+        .filter(entry => entry.isFile() && EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
         .map(entry => {
-            const [, number, extension] = entry.name.match(/^(\d+)\.(png|jpe?g|webp|gif)$/i);
-            const day = Number(number);
+            const numbered = entry.name.match(/^(\d+)\.(?:png|jpe?g|webp|gif)$/i);
+            const day = numbered ? Number(numbered[1]) : null;
             return { day, name: entry.name, size: fs.statSync(path.join(PATHS.wallpapers, entry.name)).size,
                 url: `/painel/wallpaper-images/${encodeURIComponent(entry.name)}`, current: day === currentDay };
-        }).sort((a, b) => a.day - b.day);
+        }).sort((a, b) => {
+            if (a.day !== null && b.day !== null) return a.day - b.day;
+            if (a.day !== null) return -1;
+            if (b.day !== null) return 1;
+            return a.name.localeCompare(b.name, 'pt-BR', { numeric: true });
+        });
     let nextDay = currentDay;
     while (nextDay <= 105 && numbers.has(nextDay)) nextDay += 1;
     return { directory: 'Wallpapers', currentDay, nextDay: nextDay <= 105 ? nextDay : null, files };
@@ -55,7 +60,7 @@ export async function saveWallpaper(buffer, originalName) {
 }
 
 export function readWallpaperImage(filename) {
-    if (path.basename(filename) !== filename || !/^\d+\.(?:png|jpe?g|webp|gif)$/i.test(filename)) return null;
+    if (path.basename(filename) !== filename || !EXTENSIONS.has(path.extname(filename).toLowerCase()) || /[\\/\0]/.test(filename)) return null;
     try { return fs.readFileSync(path.join(PATHS.wallpapers, filename)); }
     catch { return null; }
 }
