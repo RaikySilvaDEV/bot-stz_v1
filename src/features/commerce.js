@@ -13,6 +13,7 @@ import { trackMercadoPagoResponse } from '../services/mercadoPagoResponses.js';
 import { logAction } from '../services/audit.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { PATHS } from '../config/constants.js';
+import { replyWithEmbedPages, splitEmbedPayload } from '../services/embedPagination.js';
 
 function formatPrice(cents) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
@@ -146,10 +147,21 @@ export async function publicarVitrineLoja(guild) {
             ]
         });
     }
-    const existing = config.storeChannelId === channel.id && config.storeMessageId
-        ? await channel.messages.fetch(config.storeMessageId).catch(() => null) : null;
-    const message = existing ? await existing.edit(criarVitrineLoja()) : await channel.send(criarVitrineLoja());
-    saveStorefrontReference(channel.id, message.id);
+    const payloadPages = splitEmbedPayload(criarVitrineLoja());
+    const savedPageIds = config.storeChannelId === channel.id
+        ? [config.storeMessageId, ...(config.storePageMessageIds ?? [])].filter(Boolean) : [];
+    const existingPages = await Promise.all(savedPageIds.map(id => channel.messages.fetch(id).catch(() => null)));
+    const messages = [];
+    for (const [index, payload] of payloadPages.entries()) {
+        const existing = existingPages[index];
+        const message = existing ? await existing.edit(payload) : await channel.send(payload);
+        messages.push(message);
+    }
+    for (const stale of existingPages.slice(payloadPages.length).filter(Boolean)) {
+        await stale.delete().catch(error => console.warn(`[loja:${channel.id}] Não foi possível remover uma página antiga da vitrine:`, error.message));
+    }
+    const message = messages[0];
+    saveStorefrontReference(channel.id, message.id, messages.slice(1).map(item => item.id));
     return { channel, message };
 }
 
@@ -233,7 +245,7 @@ export async function tratarInteracaoCompras(interaction) {
 
     if (command) {
         const view = criarVitrineLoja();
-        await interaction.reply({ ...view, flags: MessageFlags.Ephemeral });
+        await replyWithEmbedPages(interaction, { ...view, flags: MessageFlags.Ephemeral });
         return true;
     }
 

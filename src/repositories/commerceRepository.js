@@ -15,7 +15,7 @@ const EMPTY = {
         durationDays: product.durationDays, originalPriceCents: product.originalPriceCents, active: true
     }])),
     stock: Object.fromEntries(PRODUCTS.map(product => [product.value, null])),
-    customProducts: [], coupons: [], lastReportDate: null, storeChannelId: null, storeMessageId: null
+    customProducts: [], coupons: [], lastReportDate: null, storeChannelId: null, storeMessageId: null, storePageMessageIds: []
 };
 
 export const COMMERCE_AUTOMATIONS = AUTOMATIONS;
@@ -335,9 +335,10 @@ export function saveLastCommerceReport(date) {
     save(config);
 }
 
-export function saveStorefrontReference(channelId, messageId) {
+export function saveStorefrontReference(channelId, messageId, pageMessageIds = []) {
     const config = getCommerceConfig();
     config.storeChannelId = channelId;
     config.storeMessageId = messageId;
+    config.storePageMessageIds = pageMessageIds;
     save(config);
 }

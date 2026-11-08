@@ -19,6 +19,7 @@ import { tratarComandoIa } from '../features/assistantCommands.js';
 import { iniciarAtendimentoAutomatico, iniciarAjudaCompraAutomatica } from '../features/tickets.js';
 import { setUserLanguage } from '../repositories/userPreferencesRepository.js';
 import { markTicketActivity } from '../repositories/ticketActivityRepository.js';
+import { replyWithEmbedPages } from '../services/embedPagination.js';
 
 const ticketsEmCriacao = new Set();
 let criandoCategoriaCompras = null;
@@ -231,7 +232,8 @@ client.on('interactionCreate', async interaction => {
                 return interaction.reply({ content: confirmations[language] ?? confirmations['pt-BR'], flags: MessageFlags.Ephemeral });
             }
             if (interaction.commandName === 'ajuda') {
-                return interaction.reply({ ...criarAjuda(), flags: MessageFlags.Ephemeral });
+                await replyWithEmbedPages(interaction, { ...criarAjuda(), flags: MessageFlags.Ephemeral });
+                return;
             }
             if (interaction.commandName === 'ping') {
                 return interaction.reply({
@@ -246,7 +248,8 @@ client.on('interactionCreate', async interaction => {
                 });
             }
             if (interaction.commandName === 'vendas') {
-                return interaction.reply({ ...criarVitrineLoja(), flags: MessageFlags.Ephemeral });
+                await replyWithEmbedPages(interaction, { ...criarVitrineLoja(), flags: MessageFlags.Ephemeral });
+                return;
             }
             return interaction.reply({ flags: MessageFlags.Ephemeral, content: 'Comando não reconhecido.' });
         }
