@@ -116,7 +116,7 @@ function obterPromptComCatalogo(prompt) {
 
 function responderSobrePrecisionFix(text) {
     const normalized = String(text ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
-    if (!/precision\s*fix/.test(normalized) || !/\b(quero|queria|como|quanto|preco|gratis|gratuito|baixar|comprar|compra|acesso|adquirir|ter|preciso|funciona|usar)\b/.test(normalized)) return null;
+    if (!/precision[\s_-]*fix/.test(normalized) || !/\b(quero|queria|como|quanto|preco|gratis|gratuito|baixar|comprar|compra|acesso|adquirir|ter|preciso|funciona|usar)\b/.test(normalized)) return null;
 
     const { precoPremium, validadeDias } = obterResumoCatalogo().precisionFix;
     const valor = precoPremium === 'não configurado' ? 'O preço do Premium ainda não está configurado na loja' : `o Premium custa ${precoPremium}`;
