@@ -60,7 +60,7 @@ A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel nomeado p
 3. Defina `DASHBOARD_PUBLIC_URL` com a URL HTTPS do painel, por exemplo `https://painel.seudominio.com/painel`.
 4. Reinicie o supervisor com `npm start`. Ele iniciará `cloudflared tunnel run`, validará a conexão e atualizará as URLs dos webhooks Mercado Pago para o mesmo hostname.
 
-Sem token, o supervisor usa Quick Tunnel, que fornece URLs temporárias e não garante disponibilidade. Em caso de HTTP 429, ele aguarda cinco minutos antes de tentar novamente. Para acessar a API localmente na máquina do bot, use `http://127.0.0.1:3001/painel`.
+Sem token, o supervisor usa Quick Tunnel, que fornece URLs temporárias e não garante disponibilidade. Em caso de HTTP 429, ele tenta novamente após 5, 10, 20 e até 30 minutos, reduzindo solicitações enquanto a Cloudflare aplica o limite. Para acessar a API localmente na máquina do bot, use `http://127.0.0.1:3001/painel`.
 
 Se o log do `cloudflared` mostrar `Failed to refresh DNS local resolver` ou `i/o timeout`, a falha está no resolvedor DNS da máquina que hospeda o bot. No PowerShell **como Administrador dessa máquina**, verifique o adaptador ativo e configure DNS público:
 

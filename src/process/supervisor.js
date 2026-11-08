@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { saveMercadoPagoSettings } from '../services/mercadoPagoSettings.js';
+import { getRateLimitRetryDelay } from './retryPolicy.js';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const TUNNEL_URL_PATTERN = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
@@ -17,6 +18,7 @@ let botRestartTimer = null;
 let tunnelRestartTimer = null;
 let botRestartCount = 0;
 let tunnelRestartCount = 0;
+let quickTunnelRateLimitCount = 0;
 let stopping = false;
 let restartingBotForTunnel = false;
 let dnsFailureHintShown = false;
@@ -151,6 +153,7 @@ function processTunnelOutput(chunk) {
         const publicUrl = line.match(TUNNEL_URL_PATTERN)?.[0];
         if (!publicUrl) continue;
         dnsFailureHintShown = false;
+        quickTunnelRateLimitCount = 0;
         const { dashboardUrl, changed } = configurePublicEndpoints(publicUrl);
         if (!hasTunnelUrl) {
             hasTunnelUrl = true;
@@ -205,9 +208,15 @@ function startTunnel() {
         if (stopping) return;
 
         tunnelRestartCount += 1;
-        const delay = quickTunnelRateLimited ? 300_000 : retryDelay(tunnelRestartCount);
+        const rateLimited = quickTunnelRateLimited;
         quickTunnelRateLimited = false;
-        console.error(`[cloudflared] Túnel encerrou (código ${code ?? 'indisponível'}${signal ? `, sinal ${signal}` : ''}). Nova tentativa em ${Math.ceil(delay / 1000)}s.`);
+        if (rateLimited) quickTunnelRateLimitCount += 1;
+        else quickTunnelRateLimitCount = 0;
+        const delay = rateLimited
+            ? getRateLimitRetryDelay(quickTunnelRateLimitCount)
+            : retryDelay(tunnelRestartCount);
+        const reason = rateLimited ? ' após limite de Quick Tunnel (HTTP 429)' : '';
+        console.error(`[cloudflared] Túnel encerrou${reason} (código ${code ?? 'indisponível'}${signal ? `, sinal ${signal}` : ''}). Nova tentativa em ${Math.ceil(delay / 1000)}s.`);
         tunnelRestartTimer = setTimeout(startTunnel, delay);
     });
 }
