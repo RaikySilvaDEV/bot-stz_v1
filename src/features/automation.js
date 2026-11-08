@@ -20,10 +20,15 @@ import {
 } from '../repositories/automationScheduleRepository.js';
 import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
 import { findExistingWarehousePost } from './warehousePosting.js';
+import { acquireLocalProcessLock } from '../services/localProcessLock.js';
+import {
+    getScheduledAnnouncements, markScheduledAnnouncementSent, wasScheduledAnnouncementSent
+} from '../repositories/scheduledAnnouncementsRepository.js';
 
 const ultimasMensagensLoop = new Map(Object.entries(getAutomationMessageIds()));
 const ultimoAvisoAssetAusente = new Map();
 const enviosArmazemEmAndamento = new Set();
+const avisosProgramadosEmAndamento = new Set();
 let ultimaTentativaWallpaper = { dateKey: '', at: 0 };
 
 function formatarTamanho(bytes) {
@@ -180,6 +185,55 @@ export async function dispararAvisosLoopHorario() {
     return results.every(Boolean);
 }
 
+async function findExistingScheduledAnnouncement(canal, item, dateKey, time, timezone) {
+    const messages = await canal.messages.fetch({ limit: 100 });
+    return messages.find(message => {
+        if (message.author?.id !== client.user.id || message.content !== item.content) return false;
+        const parts = getScheduleDateParts(message.createdAt, timezone);
+        return parts.dateKey === dateKey && `${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}` === time;
+    }) ?? null;
+}
+
+export async function dispararAvisosProgramados() {
+    const settings = getSettings();
+    if (!settings.automations.scheduledAnnouncements) return false;
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) return false;
+    const releaseGlobalLock = await acquireLocalProcessLock('scheduled-announcements-global');
+    if (!releaseGlobalLock) return false;
+    const now = getScheduleDateParts(new Date(), settings.timezone);
+    const time = `${String(now.hour).padStart(2, '0')}:${String(now.minute).padStart(2, '0')}`;
+    const due = getScheduledAnnouncements().filter(item => item.enabled && item.times.includes(time) && !wasScheduledAnnouncementSent(item.id, now.dateKey, time));
+    try {
+        for (const item of due) {
+            if (avisosProgramadosEmAndamento.has(item.id)) continue;
+            avisosProgramadosEmAndamento.add(item.id);
+            try {
+                if (wasScheduledAnnouncementSent(item.id, now.dateKey, time)) continue;
+                const channel = await guild.channels.fetch(item.channelId).catch(() => null);
+                if (!channel?.isTextBased()) {
+                    console.warn(`[avisos-programados:${item.id}] Canal não encontrado; será tentado novamente no próximo ciclo.`);
+                    continue;
+                }
+                const existing = await findExistingScheduledAnnouncement(channel, item, now.dateKey, time, settings.timezone);
+                if (!existing) {
+                    const embeds = item.imageUrl ? [{ title: item.title, image: { url: item.imageUrl } }] : [];
+                    await channel.send({ content: item.content, allowedMentions: settings.everyoneMentions ? { parse: ['everyone'] } : { parse: [] }, embeds });
+                }
+                markScheduledAnnouncementSent(item.id, now.dateKey, time);
+                console.info(`[avisos-programados:${item.id}] ${existing ? 'Publicação duplicada evitada' : 'Aviso publicado'} em #${channel.name} às ${time}.`);
+            } catch (error) {
+                console.error(`[avisos-programados:${item.id}] Falha ao publicar:`, error.message);
+            } finally {
+                avisosProgramadosEmAndamento.delete(item.id);
+            }
+        }
+        return true;
+    } finally {
+        await releaseGlobalLock().catch(error => console.warn('[avisos-programados] Não consegui liberar o bloqueio local:', error.message));
+    }
+}
+
 export function getScheduleDateParts(date, timeZone) {
     const values = new Intl.DateTimeFormat('en-US', {
         timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
@@ -298,7 +352,13 @@ async function findExistingWarehousePostForDate(canal, content, dateKey, timezon
 export async function processarEnvioArmazemDiario(guild, nomeArmazem, pastaArmazem, estadoKey, forcarEnvio = false) {
     if (enviosArmazemEmAndamento.has(estadoKey)) return true;
     enviosArmazemEmAndamento.add(estadoKey);
+    let releaseLock;
     try {
+        releaseLock = await acquireLocalProcessLock(`warehouse-${estadoKey}`);
+        if (!releaseLock) {
+            console.info(`[armazém:${nomeArmazem}] Outro processo local já está cuidando do envio; pulando esta execução.`);
+            return true;
+        }
         const settings = getSettings();
         if (!settings.automations.stock) return false;
         const { dateKey } = getScheduleDateParts(new Date(), settings.timezone);
@@ -380,6 +440,7 @@ ${comando}`);
         return false;
     } finally {
         enviosArmazemEmAndamento.delete(estadoKey);
+        await releaseLock?.().catch(error => console.warn(`[armazém:${nomeArmazem}] Não consegui liberar o bloqueio local:`, error.message));
     }
 }
 
@@ -421,6 +482,7 @@ export function iniciarAgendadorRelogio() {
                 executarAgendado('avisos', () => recuperarAvisosPendentes(settings, dateKey, hora, minuto));
             }
         }
+        if (settings.automations.scheduledAnnouncements) executarAgendado('avisos-programados', dispararAvisosProgramados);
         if (settings.automations.wallpapers) {
             const wallpaperDate = getWallpaperDateCompleted();
             const wallpaperWasMissedYesterday = wallpaperDate && wallpaperDate < dateKey;

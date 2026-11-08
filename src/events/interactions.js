@@ -17,6 +17,8 @@ import { tratarAdminLoja } from '../features/commerceAdmin.js';
 import { tratarInteracaoFeedback } from '../features/commerceFeedback.js';
 import { tratarComandoIa } from '../features/assistantCommands.js';
 import { iniciarAtendimentoAutomatico, iniciarAjudaCompraAutomatica } from '../features/tickets.js';
+import { setUserLanguage } from '../repositories/userPreferencesRepository.js';
+import { markTicketActivity } from '../repositories/ticketActivityRepository.js';
 
 const ticketsEmCriacao = new Set();
 let criandoCategoriaCompras = null;
@@ -31,6 +33,7 @@ function criarAjuda() {
                 '',
                 '**Geral e comunidade**',
                 '`/ajuda` — mostra esta lista completa.',
+                '`/idioma idioma:<opção>` — escolhe Português (Brasil), English (US) ou Español para respostas da assistente.',
                 '`/ping` — latência do bot e conexão com o Discord.',
                 '`/teste` — confirma que o bot está respondendo.',
                 '`/ia perguntar pergunta:<texto>` — consulta o assistente local.',
@@ -97,6 +100,7 @@ function criarAjuda() {
                 '`GET /api/painel/roles` · cargos disponíveis; `POST /api/painel/tickets/publish` · publicar painéis de suporte e compra.',
                 '`POST /api/painel/maintenance/announce` · publicar aviso de manutenção.',
                 '`GET/POST /api/painel/announcements` · `PUT/DELETE /api/painel/announcements/:id` · avisos FiveM.',
+                '`GET/POST/PUT /api/painel/scheduled-announcements` · `DELETE /api/painel/scheduled-announcements/:id` · avisos com canal, horários e imagem/GIF.',
                 '`GET /api/painel/commerce` · `PUT /api/painel/commerce/storefront` · `POST /api/painel/commerce/products` · `PUT/PATCH/DELETE /api/painel/commerce/products/:value`.',
                 '`POST /api/painel/commerce/coupons` · `DELETE /api/painel/commerce/coupons/:id` · cupons.',
                 '`PATCH /api/painel/commerce/orders/:id` · aprovar ou reentregar pedido.',
@@ -203,6 +207,9 @@ async function criarTicketPrivado(interaction, type, selectedOption = null) {
 
 client.on('interactionCreate', async interaction => {
     try {
+        if (interaction.inGuild?.() && !interaction.user?.bot && interaction.channel?.type === ChannelType.GuildText && interaction.channel.topic?.includes('ticket-type:')) {
+            markTicketActivity(interaction.channel.id);
+        }
         if (await tratarComandoIa(interaction)) return;
         if (await tratarInteracaoAnunciosFiveM(interaction)) return;
         if (await tratarInteracaoAdministracao(interaction)) return;
@@ -213,6 +220,16 @@ client.on('interactionCreate', async interaction => {
         if (await tratarAdminLoja(interaction)) return;
         if (await tratarInteracaoCompras(interaction)) return;
         if (interaction.isChatInputCommand()) {
+            if (interaction.commandName === 'idioma') {
+                const language = interaction.options.getString('idioma', true);
+                setUserLanguage(interaction.user.id, language);
+                const confirmations = {
+                    'pt-BR': '✅ Seu idioma foi definido como **Português (Brasil)**. A assistente usará esse idioma nos seus próximos atendimentos.',
+                    'en-US': '✅ Your language is now **English (US)**. The assistant will use it in your future support and purchase tickets.',
+                    es: '✅ Tu idioma ahora es **Español**. La asistente lo usará en tus próximos tickets de soporte y compra.'
+                };
+                return interaction.reply({ content: confirmations[language] ?? confirmations['pt-BR'], flags: MessageFlags.Ephemeral });
+            }
             if (interaction.commandName === 'ajuda') {
                 return interaction.reply({ ...criarAjuda(), flags: MessageFlags.Ephemeral });
             }

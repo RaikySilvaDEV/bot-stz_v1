@@ -25,7 +25,7 @@ const PAGES = [
     ['canais', 'Canais e recursos'], ['pagamentos', 'Pagamentos']
 ];
 const AUTOMATION_LABELS = {
-    announcements: 'Avisos agendados', wallpapers: 'Wallpapers às 12:00',
+    announcements: 'Avisos agendados', scheduledAnnouncements: 'Avisos personalizados do painel', wallpapers: 'Wallpapers às 12:00',
     stock: 'Armazéns diários às 12:30', aiResponses: 'Atendimento por IA'
 };
 const ALL_AUTOMATION_LABELS = {
@@ -60,6 +60,7 @@ function getAutomationHealth(status) {
     const stockReady = status.channelReady('stockCtz') && status.channelReady('stockBoosters') && status.stockCtzCount > 0 && status.stockBoostersCount > 0;
     const health = {
         announcements: { ready: announcementsReady, detail: announcementsReady ? 'Canais de destino encontrados.' : 'Um ou mais canais de destino não foram encontrados.' },
+        scheduledAnnouncements: { ready: true, detail: 'Os avisos usam canal e horários definidos individualmente no painel web.' },
         wallpapers: { ready: wallpaperReady, detail: wallpaperReady ? `Canal pronto e arquivo do dia ${status.wallpaperState.diaAtual} encontrado.` : `Canal ou arquivo do dia ${status.wallpaperState.diaAtual} ausente.` },
         stock: { ready: stockReady, detail: stockReady ? `Arquivos dos itens CTZ #${status.stockState.ctz.indexAtual} e Boosters #${status.stockState.boosters.indexAtual} encontrados.` : 'Canal ou arquivos do próximo item ausentes.' },
         aiResponses: { ready: Boolean(status.assistantStatus?.ready) && status.channelReady('supportCategory'), detail: !status.assistantStatus?.ready ? status.assistantStatus?.detail ?? 'Ollama local não configurado.' : status.channelReady('supportCategory') ? status.assistantStatus.detail : 'Categoria de suporte ausente.' }

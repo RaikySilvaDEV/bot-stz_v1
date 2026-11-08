@@ -13,7 +13,7 @@ const DEFAULT_SETTINGS = {
     timezone: process.env.BOT_TIME_ZONE || 'America/Sao_Paulo',
     announcementHours: [5, 12, 18],
     everyoneMentions: true,
-    automations: { announcements: true, wallpapers: true, stock: true, aiResponses: true },
+    automations: { announcements: true, scheduledAnnouncements: true, wallpapers: true, stock: true, aiResponses: true },
     channels: {
         partnerships: CANAL_PARCERIA_PUBLICA,
         fivemAnnouncements: CANAL_ANUNCIO_FIVE_M_ID,

@@ -30,7 +30,7 @@ const CHANNEL_LABELS = {
     precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ', stockBoosters: 'Armazém CTZ Boosters',
     roleLogs: 'Registros de cargos', salesLogs: 'Registros de vendas', audit: 'Logs administrativos'
 };
-const AUTOMATION_LABELS = { announcements: 'Avisos agendados', wallpapers: 'Wallpapers às 12:00', stock: 'Armazéns diários às 12:30', aiResponses: 'Atendimento automático por IA' };
+const AUTOMATION_LABELS = { announcements: 'Avisos agendados', scheduledAnnouncements: 'Avisos personalizados do painel', wallpapers: 'Wallpapers às 12:00', stock: 'Armazéns diários às 12:30', aiResponses: 'Atendimento automático por IA' };
 const CHANNEL_CHOICES = Object.entries(CHANNEL_LABELS).map(([value, name]) => ({ name, value }));
 const AUTOMATION_CHOICES = Object.entries(AUTOMATION_LABELS).map(([value, name]) => ({ name, value }));
 

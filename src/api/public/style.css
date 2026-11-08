@@ -937,8 +937,18 @@ dialog { max-height: min(88dvh, 760px); overscroll-behavior: contain; }
 
 .wallpaper-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .wallpaper-pagination button { min-height: 38px; }
+.scheduled-announcement-list { display: grid; gap: 10px; }
+.scheduled-announcement-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 13px 0; border-top: 1px solid var(--line); }
+.scheduled-announcement-copy { min-width: 0; }
+.scheduled-announcement-copy strong { font-size: 13px; }
+.scheduled-announcement-copy p { margin: 5px 0; color: var(--muted); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.scheduled-announcement-copy small { color: var(--subtle); font-size: 10px; }
+.scheduled-announcement-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; flex: 0 0 auto; }
+.scheduled-announcements-card .section-head { margin: 0 0 8px; }
 @media (max-width: 560px) {
   .wallpaper-pagination { flex-wrap: wrap; justify-content: center; }
   .wallpaper-pagination span { order: -1; flex-basis: 100%; text-align: center; }
   .wallpaper-pagination button { flex: 1 1 120px; min-height: 42px; }
+  .scheduled-announcement-row { flex-direction: column; gap: 10px; }
+  .scheduled-announcement-actions { justify-content: flex-start; }
 }

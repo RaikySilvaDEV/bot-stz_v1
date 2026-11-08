@@ -37,6 +37,7 @@ import {
 import { logAction } from '../services/audit.js';
 import { getTicketPanelConfig, updateTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
 import { getWallpaperImageContentType, listWallpapers, MAX_WALLPAPER_BYTES, readWallpaperImage, saveWallpaper } from '../repositories/wallpaperRepository.js';
+import { createScheduledAnnouncement, getScheduledAnnouncements, removeScheduledAnnouncement, updateScheduledAnnouncement } from '../repositories/scheduledAnnouncementsRepository.js';
 import { configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
@@ -46,7 +47,7 @@ import {
 } from './dashboardAuth.js';
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
-const AUTOMATIONS = new Set(['announcements', 'wallpapers', 'stock', 'aiResponses']);
+const AUTOMATIONS = new Set(['announcements', 'scheduledAnnouncements', 'wallpapers', 'stock', 'aiResponses']);
 const PAGE_FILES = {
     '/painel/app.js': ['app.js', 'text/javascript; charset=utf-8'],
     '/painel/style.css': ['style.css', 'text/css; charset=utf-8']
@@ -263,6 +264,47 @@ export async function handleDashboardRoute(req, res, url, readJson) {
     }
 
     try {
+        if (pathname === '/api/painel/scheduled-announcements' && req.method === 'GET') {
+            return responder(res, 200, { announcements: getScheduledAnnouncements() }), true;
+        }
+        if (pathname === '/api/painel/scheduled-announcements' && ['POST', 'PUT'].includes(req.method)) {
+            const body = await readJson(req);
+            const title = typeof body?.title === 'string' ? body.title.trim() : '';
+            const content = typeof body?.content === 'string' ? body.content.trim() : '';
+            const channelId = typeof body?.channelId === 'string' ? body.channelId : '';
+            const times = Array.isArray(body?.times) ? [...new Set(body.times)] : [];
+            if (!title || title.length > 80) return responder(res, 400, { erro: 'O nome do aviso deve ter entre 1 e 80 caracteres.' }), true;
+            if (!content || content.length > 1900) return responder(res, 400, { erro: 'O texto deve ter entre 1 e 1900 caracteres.' }), true;
+            if (times.length < 1 || times.length > 24 || times.some(time => typeof time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) return responder(res, 400, { erro: 'Informe de 1 a 24 horários no formato HH:MM.' }), true;
+            if (typeof body?.enabled !== 'boolean') return responder(res, 400, { erro: 'Informe se o aviso ficará ativo.' }), true;
+            let imageUrl = '';
+            if (body?.imageUrl) {
+                if (typeof body.imageUrl !== 'string') return responder(res, 400, { erro: 'O endereço da imagem ou GIF é inválido.' }), true;
+                try { const parsed = new URL(body.imageUrl); if (parsed.protocol !== 'https:') throw new Error(); imageUrl = parsed.href; }
+                catch { return responder(res, 400, { erro: 'A imagem ou GIF precisa ter um endereço HTTPS válido.' }), true; }
+            }
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const channel = /^\d{17,20}$/.test(channelId) ? await guild?.channels.fetch(channelId).catch(() => null) : null;
+            if (!channel || ![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(channel.type)) return responder(res, 400, { erro: 'Selecione um canal de texto válido.' }), true;
+            const input = { title, content, channelId, times: times.sort(), enabled: body.enabled, imageUrl };
+            let announcement;
+            if (req.method === 'POST') announcement = createScheduledAnnouncement(input);
+            else {
+                const id = typeof body?.id === 'string' ? body.id : '';
+                if (!/^[a-f0-9-]{36}$/i.test(id)) return responder(res, 400, { erro: 'ID de aviso inválido.' }), true;
+                announcement = updateScheduledAnnouncement(id, input);
+                if (!announcement) return responder(res, 404, { erro: 'Aviso programado não encontrado.' }), true;
+            }
+            await logAction(guild, 'painel-web', req.method === 'POST' ? 'Aviso programado cadastrado' : 'Aviso programado atualizado', `${announcement.title}; canal #${channel.name}; horários ${announcement.times.join(', ')}`);
+            return responder(res, req.method === 'POST' ? 201 : 200, { announcement, announcements: getScheduledAnnouncements() }), true;
+        }
+        const scheduledAnnouncementMatch = pathname.match(/^\/api\/painel\/scheduled-announcements\/([a-f0-9-]{36})$/i);
+        if (scheduledAnnouncementMatch && req.method === 'DELETE') {
+            const removed = removeScheduledAnnouncement(scheduledAnnouncementMatch[1]);
+            if (!removed) return responder(res, 404, { erro: 'Aviso programado não encontrado.' }), true;
+            await logAction(client.guilds.cache.get(GUILD_ID), 'painel-web', 'Aviso programado removido', removed.title);
+            return responder(res, 200, { announcements: getScheduledAnnouncements() }), true;
+        }
         if (pathname === '/api/painel/wallpapers' && req.method === 'GET') {
             return responder(res, 200, listWallpapers()), true;
         }

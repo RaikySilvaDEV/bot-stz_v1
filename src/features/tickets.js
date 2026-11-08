@@ -8,6 +8,10 @@ import { getProductPriceCents } from '../repositories/productCatalogRepository.j
 import { logAction } from '../services/audit.js';
 import { generateAssistantResponse, getAssistantStatus } from '../services/assistantProvider.js';
 import { enviarRespostaDiscord } from '../services/discordMessages.js';
+import { archiveAndCloseTicket } from '../services/ticketClosure.js';
+import { getTicketActivity, markTicketActivity, removeTicketActivity } from '../repositories/ticketActivityRepository.js';
+import { getUserLanguage } from '../repositories/userPreferencesRepository.js';
+import { acquireLocalProcessLock } from '../services/localProcessLock.js';
 const ultimoAtendimentoPorCanal = new Map();
 const ultimaMensagemTentadaPorCanal = new Map();
 const avisoIaIndisponivelPorCanal = new Set();
@@ -16,13 +20,13 @@ const saudacoesIniciaisEmAndamento = new Set();
 const perguntasDeCompraEmAndamento = new Set();
 let varreduraEmAndamento = false;
 
-function saudacaoAtual() {
+function saudacaoAtual(language = 'pt-BR') {
     const hour = Number(new Intl.DateTimeFormat('pt-BR', {
         hour: '2-digit', hourCycle: 'h23', timeZone: 'America/Sao_Paulo'
     }).format(new Date()));
-    if (hour >= 5 && hour < 12) return 'Bom dia';
-    if (hour >= 12 && hour < 18) return 'Boa tarde';
-    return 'Boa noite';
+    if (language === 'en-US') return hour >= 5 && hour < 12 ? 'Good morning' : hour >= 12 && hour < 18 ? 'Good afternoon' : 'Good evening';
+    if (language === 'es') return hour >= 5 && hour < 12 ? 'Buenos días' : hour >= 12 && hour < 18 ? 'Buenas tardes' : 'Buenas noches';
+    return hour >= 5 && hour < 12 ? 'Bom dia' : hour >= 12 && hour < 18 ? 'Boa tarde' : 'Boa noite';
 }
 
 function respostaPedeHumano(answer) {
@@ -55,8 +59,10 @@ async function encaminharParaEquipe(channel, userId, motivo) {
     };
     const customer = /^\d{17,20}$/.test(userId ?? '') ? `<@${userId}> ` : '';
     const secondResponsible = redzinxx ? ` <@${redzinxx.id}>` : '';
+    const language = getUserLanguage(userId);
+    const handoff = language === 'en-US' ? 'I’ll ask a team member to continue helping you.' : language === 'es' ? 'Voy a pedir a un miembro del equipo que continúe ayudándote.' : 'Vou chamar um responsável para continuar o atendimento.';
     await channel.send({
-        content: `🧑‍💼 ${customer}Vou chamar um responsável para continuar o atendimento. <@${MEU_ID_USUARIO}>${secondResponsible} <@&${CARGO_STAFF_SUPORTE_ID}>`,
+        content: `🧑‍💼 ${customer}${handoff} <@${MEU_ID_USUARIO}>${secondResponsible} <@&${CARGO_STAFF_SUPORTE_ID}>`,
         allowedMentions
     });
     await logAction(channel.guild, client.user.id, 'Ticket encaminhado à equipe', `Canal ${channel.name}; motivo: ${motivo}`);
@@ -66,8 +72,14 @@ async function avisarAguardarResposta(channel, userId) {
     const lastNoticeAt = avisoAguardarPorCanal.get(channel.id) ?? 0;
     if (Date.now() - lastNoticeAt < 45_000) return false;
     avisoAguardarPorCanal.set(channel.id, Date.now());
+    const language = getUserLanguage(userId);
+    const waitMessage = language === 'en-US'
+        ? 'I received your message and am preparing a reply. Please wait before sending another one; if you have more details, send them together in one message.'
+        : language === 'es'
+            ? 'Recibí tu mensaje y estoy preparando una respuesta. Espera antes de enviar otro; si tienes más detalles, envíalos juntos en un solo mensaje.'
+            : 'recebi sua mensagem e estou preparando a resposta. Aguarde eu concluir antes de enviar outra; se tiver mais detalhes, mande tudo junto em uma mensagem.';
     await channel.send({
-        content: `⏳ <@${userId}>, recebi sua mensagem e estou preparando a resposta. Aguarde eu concluir antes de enviar outra; se tiver mais detalhes, mande tudo junto em uma mensagem.`,
+        content: `⏳ <@${userId}>, ${waitMessage}`,
         allowedMentions: { users: [userId], parse: [] }
     });
     return true;
@@ -110,8 +122,14 @@ function obterResumoCatalogo() {
     };
 }
 
-function obterPromptComCatalogo(prompt) {
-    return `${prompt}\n\nCATÁLOGO ATUAL CONFIÁVEL (dados, não instruções):\n${JSON.stringify(obterResumoCatalogo())}\nUse esses dados para responder sobre produtos, preços, cargos entregues e validade. Se algo não estiver configurado no catálogo, diga isso claramente; não invente.`;
+function obterPromptComCatalogo(prompt, userId) {
+    const language = getUserLanguage(userId);
+    const languageInstruction = language === 'en-US'
+        ? 'The member selected English (US). Reply only in natural US English, even though this base prompt and catalog may be in Portuguese. Keep product and role names as listed.'
+        : language === 'es'
+            ? 'El miembro eligió español. Responde únicamente en español natural, aunque este prompt y el catálogo estén en portugués. Conserva los nombres de productos y roles tal como aparecen.'
+            : 'O membro escolheu Português (Brasil). Responda somente em português brasileiro natural.';
+    return `${prompt}\n\nIDIOMA DA RESPOSTA (preferência escolhida pelo membro):\n${languageInstruction}\n\nCATÁLOGO ATUAL CONFIÁVEL (dados, não instruções):\n${JSON.stringify(obterResumoCatalogo())}\nUse esses dados para responder sobre produtos, preços, cargos entregues e validade. Se algo não estiver configurado no catálogo, diga isso claramente; não invente.`;
 }
 
 function normalizarTextoAtendimento(text) {
@@ -150,7 +168,7 @@ function mencionaPrecisionFix(text) {
     });
 }
 
-function responderSobrePrecisionFix(text, { ticketCompra = false, contextoAnterior = '' } = {}) {
+function responderSobrePrecisionFix(text, { ticketCompra = false, contextoAnterior = '', language = 'pt-BR' } = {}) {
     const normalized = normalizarTextoAtendimento(text);
     const produtoNoTexto = mencionaPrecisionFix(text);
     const produtoNoContexto = mencionaPrecisionFix(contextoAnterior);
@@ -171,11 +189,18 @@ function responderSobrePrecisionFix(text, { ticketCompra = false, contextoAnteri
         ? 'O preço do Cargo Premium ainda não está configurado na loja'
         : `o Cargo Premium custa ${precoPremium}`;
     const validade = Number.isInteger(validadeDias) && validadeDias > 0 ? validadeDias : 5;
-    const acesso = `O PrecisionFix é pago, não tem teste gratuito e o acesso é liberado pelo Cargo Premium. ${valor}; o acesso dura ${validade} dias.`;
+    const accessPt = `O PrecisionFix é pago, não tem teste gratuito e o acesso é liberado pelo Cargo Premium. ${valor}; o acesso dura ${validade} dias.`;
+    const accessEn = `PrecisionFix is a paid utility with no free trial. Access is included with the Premium role. The current Premium price is ${precoPremium}; access lasts ${validade} days.`;
+    const accessEs = `PrecisionFix es una herramienta de pago y no tiene prueba gratuita. El acceso se obtiene con el rol Premium. El precio actual de Premium es ${precoPremium}; el acceso dura ${validade} días.`;
+    const access = language === 'en-US' ? accessEn : language === 'es' ? accessEs : accessPt;
 
     if (perguntaFuncao && !querAcesso && !perguntaPreco) {
+        if (language === 'en-US') return `PrecisionFix is a Windows and FiveM optimization utility. Access is paid, included with the Premium role, and lasts ${validade} days. I can't promise a specific FPS increase. To buy it, select Premium from the cart menu. Would you like help with the purchase?`;
+        if (language === 'es') return `PrecisionFix es una herramienta de optimización para Windows y FiveM. El acceso es de pago, se obtiene con el rol Premium y dura ${validade} días. No puedo garantizar un aumento específico de FPS. Para comprarlo, selecciona Premium en el menú del carrito. ¿Quieres ayuda con la compra?`;
         return `O PrecisionFix é um utilitário de otimização para Windows e FiveM. O acesso é pago, liberado pelo Cargo Premium e dura ${validade} dias; não posso garantir um aumento específico de FPS. Para adquirir, selecione Cargo Premium no menu do carrinho. Quer ajuda com a compra?`;
     }
+    if (language === 'en-US') return `${access} To buy, select Premium from the cart menu above and follow the payment steps. Can I help with anything else?`;
+    if (language === 'es') return `${access} Para comprarlo, selecciona Premium en el menú del carrito y sigue los pasos de pago. ¿Puedo ayudarte con algo más?`;
     return `${acesso} Para adquirir, selecione Cargo Premium no menu do carrinho acima e siga as etapas do pagamento. Posso ajudar com mais alguma dúvida?`;
 }
 
@@ -185,13 +210,21 @@ export async function iniciarAtendimentoAutomatico(channel, userId, selectedOpti
     try {
         if (!getSettings().automations.aiResponses) return;
         const assunto = selectedOption?.label ?? 'Atendimento geral';
-        const resposta = `${saudacaoAtual()}! Sou o Charles, assistente virtual da Community For Goats. Vi que o assunto do ticket é ${assunto}. Tudo bem? No que posso ajudar?`;
+        const language = getUserLanguage(userId);
+        const assuntoTraduzido = language === 'en-US' ? 'support' : language === 'es' ? 'soporte' : 'atendimento';
+        const resposta = language === 'en-US'
+            ? `${saudacaoAtual(language)}! I'm Charles, the virtual assistant for Community For Goats. I see this ticket is about ${assuntoTraduzido}. How are you? How can I help?`
+            : language === 'es'
+                ? `${saudacaoAtual(language)}! Soy Charles, el asistente virtual de Community For Goats. Veo que este ticket es de ${assuntoTraduzido}. ¿Cómo estás? ¿En qué puedo ayudarte?`
+                : `${saudacaoAtual(language)}! Sou o Charles, assistente virtual da Community For Goats. Vi que o assunto do ticket é ${assunto}. Tudo bem? No que posso ajudar?`;
         await enviarRespostaDiscord(channel, `<@${userId}> ${resposta}`, { allowedMentions: { users: [userId], parse: [] } });
         avisoIaIndisponivelPorCanal.delete(channel.id);
         await logAction(channel.guild, client.user.id, 'IA iniciou atendimento ao abrir ticket', `Canal ${channel.name}`);
     } catch (error) {
         console.error(`[tickets:${channel.id}] Falha ao iniciar atendimento automático:`, error.message);
-        await channel.send('⚠️ Não consegui iniciar o atendimento automático agora. A equipe responderá por este canal.').catch(() => {});
+        const language = getUserLanguage(userId);
+        const fallback = language === 'en-US' ? '⚠️ I could not start the automatic assistance. The team will reply here.' : language === 'es' ? '⚠️ No pude iniciar la asistencia automática. El equipo responderá por aquí.' : '⚠️ Não consegui iniciar o atendimento automático agora. A equipe responderá por este canal.';
+        await channel.send(fallback).catch(() => {});
         await logAction(channel.guild, client.user.id, 'Falha ao iniciar atendimento automático', `Canal ${channel.name}: ${error.message}`).catch(() => {});
     } finally {
         saudacoesIniciaisEmAndamento.delete(channel.id);
@@ -203,13 +236,20 @@ export async function iniciarAjudaCompraAutomatica(channel, userId) {
     saudacoesIniciaisEmAndamento.add(channel.id);
     try {
         if (!getSettings().automations.aiResponses) return;
-        const answer = `${saudacaoAtual()}! Sou o Charles e vou ajudar com sua compra. Escolha um produto no menu do carrinho acima para conferir o preço e seguir para o pagamento. Se tiver alguma dúvida, pode perguntar aqui.`;
+        const language = getUserLanguage(userId);
+        const answer = language === 'en-US'
+            ? `${saudacaoAtual(language)}! I'm Charles, and I'll help with your purchase. Choose a product from the cart menu above to see the price and continue to payment. Feel free to ask me any questions.`
+            : language === 'es'
+                ? `${saudacaoAtual(language)}! Soy Charles y te ayudaré con tu compra. Elige un producto en el menú del carrito para ver el precio y continuar al pago. Puedes preguntarme lo que necesites.`
+                : `${saudacaoAtual(language)}! Sou o Charles e vou ajudar com sua compra. Escolha um produto no menu do carrinho acima para conferir o preço e seguir para o pagamento. Se tiver alguma dúvida, pode perguntar aqui.`;
         await enviarRespostaDiscord(channel, `<@${userId}> ${answer}`, { allowedMentions: { users: [userId], parse: [] } });
         avisoIaIndisponivelPorCanal.delete(channel.id);
         await logAction(channel.guild, client.user.id, 'Assistente iniciou atendimento de compra', `Canal ${channel.name}`);
     } catch (error) {
         console.error(`[tickets-compra:${channel.id}] Falha ao iniciar assistente:`, error.message);
-        await channel.send('⚠️ Não consegui iniciar a ajuda automática agora. Você ainda pode usar o menu do carrinho ou chamar a equipe.').catch(() => {});
+        const language = getUserLanguage(userId);
+        const fallback = language === 'en-US' ? '⚠️ I could not start automatic purchase assistance. You can still use the cart menu or contact the team.' : language === 'es' ? '⚠️ No pude iniciar la ayuda automática de compra. Aún puedes usar el menú del carrito o contactar al equipo.' : '⚠️ Não consegui iniciar a ajuda automática agora. Você ainda pode usar o menu do carrinho ou chamar a equipe.';
+        await channel.send(fallback).catch(() => {});
         await logAction(channel.guild, client.user.id, 'Falha ao iniciar assistente de compra', `Canal ${channel.name}: ${error.message}`).catch(() => {});
     } finally {
         saudacoesIniciaisEmAndamento.delete(channel.id);
@@ -237,7 +277,8 @@ async function responderPerguntaDeCompra(message) {
             .map(item => ({ role: item.author.bot ? 'assistant' : 'user', content: item.content || '[mensagem com anexo]' }));
         conversation.push({ role: 'user', content: message.content });
         const contextoAnterior = conversation.slice(0, -1).map(item => item.content).join('\n');
-        const respostaPrecisionFix = responderSobrePrecisionFix(message.content, { ticketCompra: true, contextoAnterior });
+        const language = getUserLanguage(ownerId);
+        const respostaPrecisionFix = responderSobrePrecisionFix(message.content, { ticketCompra: true, contextoAnterior, language });
         if (respostaPrecisionFix) {
             await enviarRespostaDiscord(message.channel, respostaPrecisionFix, { replyTo: message, allowedMentions: { parse: [] } });
             return;
@@ -247,14 +288,16 @@ async function responderPerguntaDeCompra(message) {
         if (!status.ready) {
             if (!avisoIaIndisponivelPorCanal.has(message.channel.id)) {
                 avisoIaIndisponivelPorCanal.add(message.channel.id);
-                await message.reply({ content: '⚠️ A assistente de compras está indisponível no momento. O menu do carrinho continua funcionando e a equipe pode ajudar por este ticket.', allowedMentions: { parse: [] } });
+                const language = getUserLanguage(ownerId);
+                const fallback = language === 'en-US' ? '⚠️ Purchase assistance is unavailable right now. The cart still works, and the team can help in this ticket.' : language === 'es' ? '⚠️ La asistencia de compra no está disponible ahora. El carrito sigue funcionando y el equipo puede ayudarte en este ticket.' : '⚠️ A assistente de compras está indisponível no momento. O menu do carrinho continua funcionando e a equipe pode ajudar por este ticket.';
+                await message.reply({ content: fallback, allowedMentions: { parse: [] } });
             }
             return;
         }
 
         await avisarAguardarResposta(message.channel, ownerId);
         await message.channel.sendTyping();
-        const answer = await generateAssistantResponse(obterPromptComCatalogo(PROMPT_SISTEMA_COMPRA), conversation, { userId: ownerId });
+        const answer = await generateAssistantResponse(obterPromptComCatalogo(PROMPT_SISTEMA_COMPRA, ownerId), conversation, { userId: ownerId });
         if (respostaPedeHumano(answer)) {
             await encaminharParaEquipe(message.channel, ownerId, 'dúvida ou problema de compra');
             return;
@@ -264,9 +307,12 @@ async function responderPerguntaDeCompra(message) {
     } catch (error) {
         const congestion = error.status === 429 || error.status === 503;
         console[congestion ? 'info' : 'error'](`[tickets-compra:${message.channel.id}] ${congestion ? 'Assistente ocupada' : 'Falha ao responder dúvida'}:`, error.message);
-        const response = congestion
-            ? '⏳ A assistente está concluindo outros atendimentos. Aguarde um pouco; se ainda precisar, envie sua pergunta novamente uma única vez.'
-            : '⚠️ Não consegui responder agora. O menu do carrinho continua disponível; se a dúvida for sobre um pedido, chame a equipe.';
+        const language = getUserLanguage(ownerId);
+        const response = language === 'en-US'
+            ? congestion ? '⏳ The assistant is helping other members. Please wait a moment; if needed, send your question one more time.' : '⚠️ I could not reply right now. The cart is still available; contact the team if you need help with an order.'
+            : language === 'es'
+                ? congestion ? '⏳ La asistente está atendiendo a otras personas. Espera un momento; si hace falta, vuelve a enviar tu pregunta una sola vez.' : '⚠️ No pude responder ahora. El carrito sigue disponible; contacta al equipo si necesitas ayuda con un pedido.'
+                : congestion ? '⏳ A assistente está concluindo outros atendimentos. Aguarde um pouco; se ainda precisar, envie sua pergunta novamente uma única vez.' : '⚠️ Não consegui responder agora. O menu do carrinho continua disponível; se a dúvida for sobre um pedido, chame a equipe.';
         await message.reply({ content: response.slice(0, 1900), allowedMentions: { parse: [] } }).catch(() => {});
     } finally {
         avisoAguardarPorCanal.delete(message.channel.id);
@@ -275,12 +321,16 @@ async function responderPerguntaDeCompra(message) {
 }
 
 client.on('messageCreate', message => {
+    if (message.inGuild() && !message.author.bot && message.channel?.type === ChannelType.GuildText && message.channel.topic?.includes('ticket-type:')) {
+        markTicketActivity(message.channel.id, message.createdTimestamp);
+    }
     void responderPerguntaDeCompra(message);
 });
 
 client.on('channelDelete', channel => {
     try {
         removeNotifiedTicketId(channel.id);
+        removeTicketActivity(channel.id);
     } catch (error) {
         console.error('[tickets] Não foi possível limpar o estado do ticket removido:', error);
     }
@@ -329,7 +379,8 @@ export function iniciarVarreduraTicketsOrfaos() {
                         }
 
                         const contextoAnterior = msgsOrdenadas.slice(1, 8).map(message => message.content || '').join('\n');
-                        const respostaPrecisionFix = responderSobrePrecisionFix(ultimaMsg.content, { contextoAnterior });
+                        const language = getUserLanguage(ultimaMsg.author.id);
+                        const respostaPrecisionFix = responderSobrePrecisionFix(ultimaMsg.content, { contextoAnterior, language });
                         if (respostaPrecisionFix) {
                             await enviarRespostaDiscord(canalTicket, respostaPrecisionFix, { replyTo: ultimaMsg, allowedMentions: { parse: [] } });
                             ultimoAtendimentoPorCanal.set(canalTicket.id, Date.now());
@@ -340,7 +391,9 @@ export function iniciarVarreduraTicketsOrfaos() {
                         if (!assistantStatus?.ready) {
                             if (!avisoIaIndisponivelPorCanal.has(canalTicket.id)) {
                                 avisoIaIndisponivelPorCanal.add(canalTicket.id);
-                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: o autoatendimento local está indisponível. ${assistantStatus.detail}`);
+                                const language = getUserLanguage(ultimaMsg.author.id);
+                                const unavailable = language === 'en-US' ? '⚠️ Automatic assistance is unavailable right now. A team member has been notified.' : language === 'es' ? '⚠️ La asistencia automática no está disponible ahora. Se avisó al equipo.' : `⚠️ <@${MEU_ID_USUARIO}>: o autoatendimento local está indisponível. ${assistantStatus.detail}`;
+                                await canalTicket.send(unavailable);
                                 await logAction(guild, client.user.id, 'IA local indisponível', `Canal ${canalTicket.name}`);
                             }
                             continue;
@@ -353,7 +406,7 @@ export function iniciarVarreduraTicketsOrfaos() {
 
                             let respostaIA;
                             try {
-                                respostaIA = await generateAssistantResponse(obterPromptComCatalogo(PROMPT_SISTEMA_TICKET), msgsOrdenadas.slice(0, 8).reverse().map(message => ({
+                                respostaIA = await generateAssistantResponse(obterPromptComCatalogo(PROMPT_SISTEMA_TICKET, ultimaMsg.author.id), msgsOrdenadas.slice(0, 8).reverse().map(message => ({
                                     role: message.author.bot ? 'assistant' : 'user',
                                     content: message.content || '[mensagem com anexo]'
                                 })), { userId: ultimaMsg.author.id });
@@ -362,9 +415,11 @@ export function iniciarVarreduraTicketsOrfaos() {
                                 console[congestion ? 'info' : 'error'](`[tickets:${canalTicket.id}] ${congestion ? 'Assistente ocupada' : 'IA local indisponível'}:`, error.message);
                                 avisoIaIndisponivelPorCanal.add(canalTicket.id);
                                 if (congestion) {
-                                    await canalTicket.send('⏳ A assistente está atendendo outros tickets. Aguarde um pouco e envie sua pergunta novamente uma única vez.');
+                                    const waitText = language === 'en-US' ? '⏳ The assistant is helping other tickets. Please wait and send your question once more if needed.' : language === 'es' ? '⏳ La asistente está atendiendo otros tickets. Espera un poco y vuelve a enviar tu pregunta una sola vez si hace falta.' : '⏳ A assistente está atendendo outros tickets. Aguarde um pouco e envie sua pergunta novamente uma única vez.';
+                                    await canalTicket.send(waitText);
                                 } else {
-                                    await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: não consegui consultar a IA local. A equipe precisa responder manualmente. (${error.message})`);
+                                    const failureText = language === 'en-US' ? '⚠️ I could not reach the local assistant. The team has been notified and will reply manually.' : language === 'es' ? '⚠️ No pude conectar con la asistente local. Se avisó al equipo para que responda manualmente.' : `⚠️ <@${MEU_ID_USUARIO}>: não consegui consultar a IA local. A equipe precisa responder manualmente. (${error.message})`;
+                                    await canalTicket.send(failureText);
                                     await logAction(guild, client.user.id, 'Falha na IA local do ticket', `Canal ${canalTicket.name}: ${error.message}`);
                                 }
                                 continue;
@@ -387,6 +442,46 @@ export function iniciarVarreduraTicketsOrfaos() {
         } catch (errGlobal) { console.error('[tickets] Falha na varredura:', errGlobal); }
         finally { varreduraEmAndamento = false; }
     }, 25 * 1000);
+}
+
+const TICKET_IDLE_LIMIT_MS = 8 * 60 * 1000;
+let idleTicketScanRunning = false;
+
+export function iniciarVarreduraTicketsInativos() {
+    setInterval(async () => {
+        if (idleTicketScanRunning) return;
+        idleTicketScanRunning = true;
+        try {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            if (!guild) return;
+            await guild.channels.fetch();
+            const settings = getSettings();
+            const tickets = guild.channels.cache.filter(channel => channel?.type === ChannelType.GuildText &&
+                channel.topic?.includes('ticket-type:') &&
+                [settings.channels.supportCategory, settings.channels.purchaseCategory].filter(Boolean).includes(channel.parentId));
+            for (const ticket of tickets.values()) {
+                let releaseLock;
+                try {
+                    releaseLock = await acquireLocalProcessLock(`idle-ticket-${ticket.id}`);
+                    if (!releaseLock) continue;
+                    if (!guild.channels.cache.has(ticket.id)) continue;
+                    const messages = await ticket.messages.fetch({ limit: 50 });
+                    const latestHumanMessage = messages.reduce((latest, message) =>
+                        !message.author.bot && message.createdTimestamp > latest ? message.createdTimestamp : latest, 0);
+                    const lastActivity = Math.max(ticket.createdTimestamp, latestHumanMessage, getTicketActivity(ticket.id));
+                    if (Date.now() - lastActivity < TICKET_IDLE_LIMIT_MS) continue;
+                    console.info(`[tickets] Fechando #${ticket.name}: sem atividade humana há pelo menos oito minutos.`);
+                    await archiveAndCloseTicket(guild, ticket, client.user.id, 'Fechado automaticamente após 8 minutos sem interação.');
+                } catch (error) {
+                    console.error(`[tickets] Falha ao fechar ticket inativo ${ticket.id}:`, error.message);
+                } finally {
+                    await releaseLock?.().catch(error => console.warn(`[tickets] Não consegui liberar bloqueio do ticket ${ticket.id}:`, error.message));
+                }
+            }
+        } catch (error) {
+            console.error('[tickets] Falha na verificação de inatividade:', error.message);
+        } finally { idleTicketScanRunning = false; }
+    }, 60 * 1000);
 }
 
 // 👋 Boas-vindas Personalizadas

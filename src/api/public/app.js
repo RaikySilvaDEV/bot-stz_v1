@@ -1,7 +1,7 @@
 const byId = id => document.getElementById(id);
 const pageFromStorage = localStorage.getItem('bot-dashboard-page');
 const validPages = new Set(['overview', 'services', 'automations', 'channels', 'announcements', 'config', 'store', 'payments', 'payouts', 'assistant']);
-const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], wallpapers: { files: [], currentDay: 1, nextDay: 1, page: 1 }, assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
+const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], scheduledAnnouncements: [], wallpapers: { files: [], currentDay: 1, nextDay: 1, page: 1 }, assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
 const pageTitles = { overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', announcements: 'Avisos', config: 'Configuração', store: 'Loja', payments: 'Pagamentos', payouts: 'Repasses', assistant: 'Assistente' };
 const pageDescriptions = {
   overview: 'Acompanhe o estado do bot e encontre rapidamente o que precisa de atenção.',
@@ -165,6 +165,26 @@ function openAnnouncementDialog(announcement = null) {
   byId('announcement-title').focus();
 }
 
+function openScheduledAnnouncementDialog(announcement = null) {
+  const dialog = byId('scheduled-announcement-dialog');
+  const form = byId('scheduled-announcement-form');
+  const field = name => form.elements.namedItem(name);
+  form.reset();
+  field('id').value = announcement?.id ?? '';
+  field('title').value = announcement?.title ?? '';
+  field('channelId').innerHTML = state.config.availableChannels
+    .filter(channel => channel.type === 'text')
+    .map(channel => `<option value="${escapeHtml(channel.id)}">#${escapeHtml(channel.name)}</option>`).join('');
+  field('channelId').value = announcement?.channelId ?? state.config.channels.supportNotices ?? '';
+  field('times').value = (announcement?.times ?? ['12:00']).join(', ');
+  field('content').value = announcement?.content ?? '';
+  field('imageUrl').value = announcement?.imageUrl ?? '';
+  field('enabled').checked = announcement?.enabled ?? true;
+  byId('scheduled-announcement-title').textContent = announcement ? 'Editar aviso programado' : 'Novo aviso programado';
+  byId('scheduled-announcement-error').textContent = '';
+  dialog.showModal();
+}
+
 function renderAnnouncements() {
   const channel = state.data.channels.find(item => item.key === 'fivemAnnouncements');
   const wallpaperData = state.wallpapers;
@@ -173,17 +193,58 @@ function renderAnnouncements() {
   wallpaperData.page = Math.min(Math.max(1, Number(wallpaperData.page) || 1), wallpaperPageCount);
   const visibleWallpapers = wallpaperData.files.slice((wallpaperData.page - 1) * wallpaperPageSize, wallpaperData.page * wallpaperPageSize);
   const schedule = state.config;
+  const scheduledAnnouncementCards = state.scheduledAnnouncements.length ? state.scheduledAnnouncements.map(item => {
+    const target = schedule?.availableChannels?.find(channel => channel.id === item.channelId);
+    return `<article class="scheduled-announcement-row"><div class="scheduled-announcement-copy"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.content)}</p><small>#${escapeHtml(target?.name ?? 'canal não encontrado')} · ${item.times.map(escapeHtml).join(' · ')}</small></div><div class="scheduled-announcement-actions">${badge(item.enabled ? 'Ativo' : 'Pausado', item.enabled ? 'ok' : '')}<button class="tiny edit-scheduled-announcement" data-id="${escapeHtml(item.id)}" type="button">Editar</button><button class="tiny danger delete-scheduled-announcement" data-id="${escapeHtml(item.id)}" type="button">Remover</button></div></article>`;
+  }).join('') : '<p class="detail">Nenhum aviso programado. Cadastre um aviso e escolha o canal e os horários.</p>';
   const hoursText = schedule?.announcementHours?.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ') ?? 'carregando';
   byId('content').innerHTML = `<section class="announcement-intro"><div class="announcement-intro-icon">${icon('megaphone')}</div><div><h2>Avisos do servidor</h2><p>Gerencie o que aparece em <strong>${escapeHtml(channel?.name ? `#${channel.name}` : 'canal FiveM configurado')}</strong>. Ao salvar, o Discord é atualizado junto com o registro local.</p></div><button class="primary" id="new-announcement" type="button">${icon('plus')} Novo aviso</button></section>
     <section class="card announcement-schedule"><div><strong>Avisos automáticos</strong><span>${escapeHtml(hoursText)} · fuso ${escapeHtml(schedule?.timezone ?? 'America/Sao_Paulo')}</span></div><button class="tiny" data-target="config" type="button">${icon('settings-2')} Configurar horários e canais</button></section>
+    <section class="card scheduled-announcements-card"><div class="section-head"><div><h2>Avisos por horário</h2><p class="detail">Defina canal, horários, texto e imagem/GIF para cada publicação. O fuso usa ${escapeHtml(schedule?.timezone ?? 'America/Sao_Paulo')}.</p></div><button id="new-scheduled-announcement" class="primary" type="button">${icon('plus')} Novo aviso</button></div><div class="scheduled-announcement-list">${scheduledAnnouncementCards}</div></section>
     <section class="card wallpaper-manager"><div class="wallpaper-manager-head"><div><p class="eyebrow">BIBLIOTECA DE IMAGENS</p><h2>Wallpapers diários</h2><p class="detail">A pasta é verificada automaticamente: imagens com nomes diferentes ou dentro de subpastas são organizadas como <code>1.png</code>, <code>2.png</code>… a partir do dia atual. Os uploads recebem a próxima numeração livre. Limite: 45 MiB por imagem.</p></div><button id="wallpaper-upload-button" class="secondary" type="button">${icon('image')} Enviar wallpapers</button><input id="wallpaper-upload-input" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" multiple hidden></div><div class="wallpaper-upload-meta"><span>Dia atual: <strong>${wallpaperData.currentDay}/105</strong></span><span>Próximo número: <strong>${wallpaperData.nextDay ?? 'sequência completa'}</strong></span><span>${wallpaperData.files.length} imagem(ns) na pasta</span></div><p id="wallpaper-upload-progress" class="detail" aria-live="polite"></p><div class="wallpaper-grid">${wallpaperData.files.length ? visibleWallpapers.map(file => `<article class="wallpaper-tile ${file.current ? 'is-current' : ''}"><img src="${escapeHtml(file.url)}" alt="Wallpaper do dia ${file.day}" loading="lazy"><div><strong>Dia ${file.day}</strong><span>${escapeHtml(file.name)} · ${(file.size / 1048576).toFixed(1)} MiB</span>${file.current ? '<em>Próximo a publicar</em>' : ''}</div></article>`).join('') : '<p class="detail">A pasta ainda não tem wallpapers.</p>'}</div>${wallpaperPageCount > 1 ? `<div class="wallpaper-pagination"><button id="wallpaper-prev" class="tiny" type="button" ${wallpaperData.page <= 1 ? 'disabled' : ''}>← Anterior</button><span>Página ${wallpaperData.page} de ${wallpaperPageCount} · mostrando ${visibleWallpapers.length} de ${wallpaperData.files.length}</span><button id="wallpaper-next" class="tiny" type="button" ${wallpaperData.page >= wallpaperPageCount ? 'disabled' : ''}>Próxima →</button></div>` : ''}</section>
     <div class="section-head"><div><h2>Avisos publicados</h2><p class="detail">${state.announcements.length} aviso(s) no catálogo.</p></div><label class="announcement-search-wrap">${icon('search')}<input id="announcement-search" type="search" placeholder="Buscar aviso…" aria-label="Buscar avisos"></label></div>
     <div id="announcement-list" class="announcement-list">${state.announcements.length ? state.announcements.map(item => `<article class="card announcement-card" data-search-row><div class="announcement-main"><div class="announcement-card-icon">${icon('file-text')}</div><div class="announcement-copy"><div class="announcement-card-heading"><h3>${escapeHtml(item.titulo)}</h3>${badge(item.imageUrl ? 'Com imagem' : 'Publicado', 'ok')}</div><p>${escapeHtml(item.texto)}</p>${item.imageUrl ? `<img class="announcement-card-image" src="${escapeHtml(item.imageUrl)}" alt="Prévia do aviso ${escapeHtml(item.titulo)}" loading="lazy">` : ''}<small>Atualizado em ${escapeHtml(new Date(item.updatedAt ?? item.createdAt).toLocaleString('pt-BR'))}</small></div></div><div class="announcement-actions"><button class="tiny edit-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('file-text')} Editar</button><button class="tiny danger delete-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('x')} Remover</button></div></article>`).join('') : `<div class="empty-state"><div class="empty-state-icon">${icon('megaphone')}</div><h3>Nenhum aviso cadastrado</h3><p>Crie seu primeiro aviso para publicar uma mensagem no canal FiveM.</p><button class="primary" id="new-announcement-empty" type="button">${icon('plus')} Criar primeiro aviso</button></div>`}</div><p id="announcement-empty-search" class="empty" hidden>Nenhum aviso corresponde à busca.</p>`;
   byId('new-announcement')?.addEventListener('click', () => openAnnouncementDialog());
   byId('new-announcement-empty')?.addEventListener('click', () => openAnnouncementDialog());
+  byId('new-scheduled-announcement')?.addEventListener('click', () => openScheduledAnnouncementDialog());
+  document.querySelectorAll('.edit-scheduled-announcement').forEach(button => button.addEventListener('click', () => openScheduledAnnouncementDialog(state.scheduledAnnouncements.find(item => item.id === button.dataset.id))));
+  document.querySelectorAll('.delete-scheduled-announcement').forEach(button => button.addEventListener('click', async () => {
+    const item = state.scheduledAnnouncements.find(entry => entry.id === button.dataset.id);
+    if (!item || !window.confirm(`Remover o aviso programado “${item.title}”?`)) return;
+    button.disabled = true;
+    try { state.scheduledAnnouncements = (await request(`/api/painel/scheduled-announcements/${encodeURIComponent(item.id)}`, { method: 'DELETE' })).announcements; renderAnnouncements(); notice('Aviso programado removido.'); }
+    catch (error) { notice(error.message, true); button.disabled = false; }
+  }));
   byId('wallpaper-prev')?.addEventListener('click', () => { wallpaperData.page -= 1; renderAnnouncements(); });
   byId('wallpaper-next')?.addEventListener('click', () => { wallpaperData.page += 1; renderAnnouncements(); });
   byId('wallpaper-upload-button')?.addEventListener('click', () => byId('wallpaper-upload-input').click());
+  byId('scheduled-announcement-close')?.addEventListener('click', () => byId('scheduled-announcement-dialog').close());
+  byId('scheduled-announcement-cancel')?.addEventListener('click', () => byId('scheduled-announcement-dialog').close());
+  byId('scheduled-announcement-form')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const field = name => form.elements.namedItem(name);
+    const times = field('times').value.split(',').map(value => value.trim()).filter(Boolean);
+    if (!times.length || times.some(time => !/^([01]\d|2[0-3]):[0-5]\d$/.test(time))) {
+      byId('scheduled-announcement-error').textContent = 'Use horários no formato HH:MM, separados por vírgula. Exemplo: 12:00, 18:30.';
+      return;
+    }
+    const id = field('id').value;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    byId('scheduled-announcement-error').textContent = '';
+    try {
+      const result = await request('/api/painel/scheduled-announcements', { method: id ? 'PUT' : 'POST', body: JSON.stringify({
+        id, title: field('title').value.trim(), channelId: field('channelId').value,
+        times, content: field('content').value.trim(), imageUrl: field('imageUrl').value.trim(), enabled: field('enabled').checked
+      }) });
+      state.scheduledAnnouncements = result.announcements;
+      byId('scheduled-announcement-dialog').close();
+      renderAnnouncements();
+      notice(id ? 'Aviso programado atualizado.' : 'Aviso programado cadastrado.');
+    } catch (error) { byId('scheduled-announcement-error').textContent = error.message; }
+    finally { button.disabled = false; }
+  });
   byId('wallpaper-upload-input')?.addEventListener('change', async event => {
     const files = [...event.currentTarget.files];
     const button = byId('wallpaper-upload-button');
@@ -765,8 +826,8 @@ async function refresh() {
 async function loadPageData(page) {
   if (page === 'overview') state.commerce = await request('/api/painel/commerce');
   if (page === 'announcements') {
-    const [announcements, wallpapers, config] = await Promise.all([request('/api/painel/announcements'), request('/api/painel/wallpapers'), request('/api/painel/config')]);
-    state.announcements = announcements.announcements; state.wallpapers = wallpapers; state.config = config;
+    const [announcements, wallpapers, config, scheduled] = await Promise.all([request('/api/painel/announcements'), request('/api/painel/wallpapers'), request('/api/painel/config'), request('/api/painel/scheduled-announcements')]);
+    state.announcements = announcements.announcements; state.wallpapers = wallpapers; state.config = config; state.scheduledAnnouncements = scheduled.announcements;
   }
   if (page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
   if (page === 'payments') {

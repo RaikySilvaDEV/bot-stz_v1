@@ -151,6 +151,21 @@
     </form>
   </dialog>
 
+  <dialog id="scheduled-announcement-dialog" aria-labelledby="scheduled-announcement-title">
+    <form id="scheduled-announcement-form" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><p class="eyebrow">PUBLICAÇÃO AUTOMÁTICA</p><h2 id="scheduled-announcement-title">Novo aviso programado</h2></div><button type="button" id="scheduled-announcement-close" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
+      <input type="hidden" name="id">
+      <label for="scheduled-announcement-name">Nome interno</label><input id="scheduled-announcement-name" name="title" maxlength="80" required placeholder="Ex.: Aviso da loja">
+      <label for="scheduled-announcement-channel">Canal de destino</label><select id="scheduled-announcement-channel" name="channelId" required></select>
+      <label for="scheduled-announcement-times">Horários</label><input id="scheduled-announcement-times" name="times" maxlength="120" required placeholder="12:00, 18:30"><p class="detail">Use o fuso definido em Configuração. Separe os horários por vírgula.</p>
+      <label for="scheduled-announcement-content">Mensagem</label><textarea id="scheduled-announcement-content" name="content" maxlength="1900" rows="5" required></textarea>
+      <label for="scheduled-announcement-image">Imagem/GIF HTTPS (opcional)</label><input id="scheduled-announcement-image" name="imageUrl" type="url" maxlength="500" placeholder="https://…">
+      <label class="check-option"><input name="enabled" type="checkbox" checked> Aviso ativo</label>
+      <p id="scheduled-announcement-error" class="error" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" id="scheduled-announcement-cancel" class="secondary">Cancelar</button><button class="primary" type="submit">Salvar aviso</button></div>
+    </form>
+  </dialog>
+
   <dialog id="channel-dialog" aria-labelledby="channel-dialog-title">
     <form id="channel-form" method="dialog" class="dialog-card">
       <div class="dialog-head"><div><p class="eyebrow">SERVIDOR DISCORD</p><h2 id="channel-dialog-title">Criar canal</h2></div><button type="button" id="close-channel" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>

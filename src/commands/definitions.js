@@ -10,6 +10,11 @@ return [
         .setName('ajuda')
         .setDescription('Mostra os comandos e recursos do bot.'),
     new SlashCommandBuilder()
+        .setName('idioma')
+        .setDescription('Escolhe o idioma usado pela assistente nos seus tickets.')
+        .addStringOption(option => option.setName('idioma').setDescription('Seu idioma preferido').setRequired(true)
+            .addChoices({ name: 'Português (Brasil)', value: 'pt-BR' }, { name: 'English (US)', value: 'en-US' }, { name: 'Español', value: 'es' })),
+    new SlashCommandBuilder()
         .setName('ping')
         .setDescription('Mostra a latência do bot.'),
     new SlashCommandBuilder()

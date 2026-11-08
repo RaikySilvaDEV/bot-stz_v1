@@ -1,5 +1,5 @@
 import { client } from '../client.js';
-import { iniciarVarreduraTicketsOrfaos } from '../features/tickets.js';
+import { iniciarVarreduraTicketsInativos, iniciarVarreduraTicketsOrfaos } from '../features/tickets.js';
 import { configurarCanalVerificacao, configurarPainelTickets, removerPainelParceriaAntigo } from '../features/community.js';
 import { iniciarAgendadorRelogio, verificarEnviosPendentesAoLigar, removerAnuncioParceriaAntigo } from '../features/automation.js';
 import { registrarComandos } from '../commands/deploy.js';
@@ -49,6 +49,7 @@ client.once('clientReady', async () => {
         console.error('Não foi possível registrar os comandos de barra:', error);
     }
     await executarEtapa('varredura de tickets', iniciarVarreduraTicketsOrfaos);
+    await executarEtapa('fechamento de tickets inativos', iniciarVarreduraTicketsInativos);
     await executarEtapa('painel de verificação', configurarCanalVerificacao);
     await executarEtapa('painel de tickets', configurarPainelTickets);
     await executarEtapa('painel antigo de parcerias', removerPainelParceriaAntigo);
