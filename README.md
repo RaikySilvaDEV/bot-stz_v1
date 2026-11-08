@@ -47,11 +47,20 @@ No Discord Developer Portal, habilite **Server Members Intent** e **Message Cont
 npm start
 ```
 
-`npm start` inicia o supervisor do projeto: tenta abrir o túnel Cloudflare Quick Tunnel e inicia o bot; reinicia os processos após saídas inesperadas. O URL `trycloudflare.com` é temporário e pode mudar. `Ctrl+C` encerra os processos iniciados pelo supervisor. Sem túnel, execute `npm run start:direct` para iniciar somente o bot e a API local.
+`npm start` inicia o supervisor do projeto: inicia o bot e um túnel Cloudflare. Sem token, usa o Quick Tunnel temporário `trycloudflare.com`; com `CLOUDFLARE_TUNNEL_TOKEN`, usa o Named Tunnel configurado na sua conta. `Ctrl+C` encerra os processos iniciados pelo supervisor. Sem túnel, execute `npm run start:direct` para iniciar somente o bot e a API local.
 
 **Publicações diárias:** wallpaper às **12:00** e um item de cada armazém (CTZ e Boosters) às **12:30**, no fuso configurado. O avanço por item é salvo por armazém; reiniciar o bot não repete o envio no mesmo dia. Arquivos acima do limite do Discord são divididos em partes sequenciais.
 
-A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel e o bot precisam apontar para a mesma porta. O painel local fica em `http://127.0.0.1:3001/painel`. Para acesso externo, use HTTPS e defina `DASHBOARD_PUBLIC_URL` com a URL pública completa do painel. Quick Tunnels não garantem um endereço fixo.
+A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel nomeado precisa publicar o hostname para `http://127.0.0.1:3001`. O painel local fica em `http://127.0.0.1:3001/painel`.
+
+#### Acesso externo estável pelo Cloudflare
+
+1. No painel Cloudflare, crie um túnel remoto em **Networking → Tunnels** e adicione um hostname público para o serviço `http://127.0.0.1:3001`. O hostname precisa pertencer a uma zona/domínio configurado na sua conta Cloudflare.
+2. Copie o token do túnel para o `.env` da máquina do bot em `CLOUDFLARE_TUNNEL_TOKEN`. Não publique nem envie esse token no chat.
+3. Defina `DASHBOARD_PUBLIC_URL` com a URL HTTPS do painel, por exemplo `https://painel.seudominio.com/painel`.
+4. Reinicie o supervisor com `npm start`. Ele iniciará `cloudflared tunnel run`, validará a conexão e atualizará as URLs dos webhooks Mercado Pago para o mesmo hostname.
+
+Sem token, o supervisor usa Quick Tunnel, que fornece URLs temporárias e não garante disponibilidade. Em caso de HTTP 429, ele tenta novamente após 5, 10, 20 e até 30 minutos, reduzindo solicitações enquanto a Cloudflare aplica o limite. Para acessar a API localmente na máquina do bot, use `http://127.0.0.1:3001/painel`.
 
 Se o log do `cloudflared` mostrar `Failed to refresh DNS local resolver` ou `i/o timeout`, a falha está no resolvedor DNS da máquina que hospeda o bot. No PowerShell **como Administrador dessa máquina**, verifique o adaptador ativo e configure DNS público:
 
@@ -186,6 +195,7 @@ O repasse ao sócio usa a porcentagem configurada sobre cada pedido confirmado c
 | `DASHBOARD_PASSWORD` | Senha dedicada ao painel (recomendado). |
 | `API_HOST`, `API_PORT` | Endereço local e porta HTTP. |
 | `DASHBOARD_PUBLIC_URL` | URL pública HTTPS de `/painel`, se houver. |
+| `CLOUDFLARE_TUNNEL_TOKEN` | Token secreto de um túnel Cloudflare remoto; quando definido, substitui o Quick Tunnel. |
 | `BOT_TIME_ZONE` | Fuso IANA, por padrão `America/Sao_Paulo`. |
 | `BOT_DEVELOPER_IDS` | IDs de desenvolvedor adicionais separados por vírgulas. |
 | `BOT_ADMIN_ROLE_IDS` | IDs de cargos que podem usar recursos administrativos. |

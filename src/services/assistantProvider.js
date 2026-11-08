@@ -196,7 +196,8 @@ export function createAssistantProvider({ env = process.env, fetchImpl = globalT
         }
         try {
             const messages = [
-                { role: 'system', content: sanitizeText(task.systemPrompt, 2000) },
+                // Preserve the full support/sales rules and the live catalog appended to them.
+                { role: 'system', content: sanitizeText(task.systemPrompt, 12_000) },
                 ...task.messages
             ];
             const answerParts = [];

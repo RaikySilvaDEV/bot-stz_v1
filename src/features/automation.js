@@ -19,9 +19,11 @@ import {
     markAnnouncementHoursCompleted, markWallpaperDateCompleted, clearWallpaperDateCompleted
 } from '../repositories/automationScheduleRepository.js';
 import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
+import { findExistingWarehousePost } from './warehousePosting.js';
 
 const ultimasMensagensLoop = new Map(Object.entries(getAutomationMessageIds()));
 const ultimoAvisoAssetAusente = new Map();
+const enviosArmazemEmAndamento = new Set();
 let ultimaTentativaWallpaper = { dateKey: '', at: 0 };
 
 function formatarTamanho(bytes) {
@@ -271,7 +273,31 @@ export async function dispararWallpaperDiario() {
     }
 }
 
+async function findExistingWarehousePostForDate(canal, content, dateKey, timezone) {
+    let before;
+    for (let page = 0; page < 10; page += 1) {
+        const messages = await canal.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+        const existingPost = findExistingWarehousePost(messages.values(), {
+            authorId: client.user.id,
+            content,
+            dateKey,
+            getDateKey: date => getScheduleDateParts(date, timezone).dateKey
+        });
+        if (existingPost) return existingPost;
+        if (messages.size < 100) return null;
+
+        const oldestMessage = messages.reduce((oldest, message) =>
+            message.createdTimestamp < oldest.createdTimestamp ? message : oldest
+        );
+        if (getScheduleDateParts(oldestMessage.createdAt, timezone).dateKey < dateKey) return null;
+        before = oldestMessage.id;
+    }
+    throw new Error('Não encontrei o cabeçalho do item nas últimas 1000 mensagens; envio cancelado para evitar duplicação.');
+}
+
 export async function processarEnvioArmazemDiario(guild, nomeArmazem, pastaArmazem, estadoKey, forcarEnvio = false) {
+    if (enviosArmazemEmAndamento.has(estadoKey)) return true;
+    enviosArmazemEmAndamento.add(estadoKey);
     try {
         const settings = getSettings();
         if (!settings.automations.stock) return false;
@@ -290,6 +316,16 @@ export async function processarEnvioArmazemDiario(guild, nomeArmazem, pastaArmaz
         }
         fs.mkdirSync(pastaArmazem, { recursive: true });
         const item = armazemEstado.indexAtual;
+        const titulo = nomeArmazem === 'ctz' ? 'Armazém CTZ' : 'Armazém CTZ Boosters';
+        const messageContent = `📦 **[${titulo}] • Item #${item}**\n\n@everyone`;
+        const existingPost = await findExistingWarehousePostForDate(canal, messageContent, dateKey, settings.timezone);
+        if (existingPost) {
+            armazemEstado.indexAtual += 1;
+            armazemEstado.ultimoTimestampEnvio = agoraMs;
+            saveStockState(estadoMods);
+            console.info(`[armazém:${nomeArmazem}] O item ${item} já foi publicado hoje; pulando reenvio.`);
+            return true;
+        }
         const nomes = fs.readdirSync(pastaArmazem)
             .filter(nome => new RegExp(`^${item}\\.`, 'i').test(nome))
             .filter(nome => fs.statSync(path.join(pastaArmazem, nome)).isFile());
@@ -302,7 +338,6 @@ export async function processarEnvioArmazemDiario(guild, nomeArmazem, pastaArmaz
             return false;
         }
 
-        const titulo = nomeArmazem === 'ctz' ? 'Armazém CTZ' : 'Armazém CTZ Boosters';
         const arquivos = nomes.map(nome => {
             const filePath = path.join(pastaArmazem, nome);
             return { name: nome, path: filePath, size: fs.statSync(filePath).size };
@@ -311,9 +346,7 @@ export async function processarEnvioArmazemDiario(guild, nomeArmazem, pastaArmaz
         const tamanhoMaximoParte = Math.max(BYTES_PER_MIB, limiteUpload - BYTES_PER_MIB);
         const arquivosGrandes = getOversizedAttachments(arquivos, limiteUpload);
         await canal.send({
-            content: `📦 **[${titulo}] • Item #${item}**
-
-@everyone`,
+            content: messageContent,
             allowedMentions: settings.everyoneMentions ? { parse: ['everyone'] } : { parse: [] }
         });
         for (const arquivo of arquivos) {
@@ -345,6 +378,8 @@ ${comando}`);
     } catch (error) {
         console.error(`[armazém:${nomeArmazem}] Falha ao enviar item:`, error);
         return false;
+    } finally {
+        enviosArmazemEmAndamento.delete(estadoKey);
     }
 }
 

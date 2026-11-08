@@ -17,12 +17,14 @@ $project = [System.IO.Path]::GetFullPath([string]$config.ProjectPath)
 $updaterPath = [System.IO.Path]::GetFullPath((Join-Path $project 'scripts\run-auto-deploy.ps1'))
 $cloudflaredPath = [System.IO.Path]::GetFullPath([string]$config.CloudflaredPath)
 $apiPort = 3001
+$namedTunnelConfigured = $false
 $envFile = Join-Path $project '.env'
 if (Test-Path -LiteralPath $envFile) {
     foreach ($line in [System.IO.File]::ReadAllLines($envFile)) {
         if ($line -match '^\s*API_PORT\s*=\s*(\d+)\s*$') {
             $apiPort = [int]$Matches[1]
-            break
+        } elseif ($line -match '^\s*CLOUDFLARE_TUNNEL_TOKEN\s*=\s*(.*?)\s*$') {
+            $namedTunnelConfigured = -not [string]::IsNullOrWhiteSpace($Matches[1])
         }
     }
 }
@@ -31,6 +33,7 @@ function Get-BotProcessSnapshot {
     $processes = @(Get-CimInstance Win32_Process)
     $updaterPattern = [regex]::Escape($updaterPath)
     $tunnelPattern = "127\.0\.0\.1:$apiPort"
+    if ($namedTunnelConfigured) { $tunnelPattern += '|(?:^|\s)tunnel\s+run(?:\s|$)' }
     $cloudflaredFullPath = [System.IO.Path]::GetFullPath($cloudflaredPath)
     $updaters = @($processes | Where-Object {
         $_.Name -match '^(powershell|pwsh)\.exe$' -and $_.CommandLine -match $updaterPattern
