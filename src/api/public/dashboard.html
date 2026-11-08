@@ -4,31 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#1700ed">
-  <meta name="description" content="Painel administrativo do bot Community for FiveM.">
-  <title>Central de controle · Community for FiveM</title>
+  <meta name="theme-color" content="#f1f2f5">
+  <meta name="description" content="Painel administrativo do bot Community For Goats.">
+  <title>Central de controle · Community For Goats</title>
   <link rel="stylesheet" href="/painel/style.css">
   <script type="module" src="/painel/app.js"></script>
 </head>
 <body>
   <main id="login" class="login-shell">
-    <section class="login-card">
-      <div class="brand-mark" aria-hidden="true">STZ</div>
-      <p class="eyebrow">ADMINISTRAÇÃO PRIVADA</p>
-      <h1>Painel do bot</h1>
-      <p class="muted">Abra pelo botão <strong>Ver na web</strong> do painel privado do Discord para entrar automaticamente. Também pode usar sua chave de acesso.</p>
-      <form id="login-form">
-        <label for="password">Chave de acesso</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
-        <button class="primary wide" type="submit">Entrar</button>
-        <p id="login-error" class="error" aria-live="polite"></p>
-      </form>
-    </section>
+    <div class="login-layout">
+      <section class="login-hero" aria-label="Community For Goats">
+        <img class="login-banner" src="/painel/brand-assets/banner-socio-server-bot.png" alt="Community For Goats · Valorant, FiveM e Discord">
+        <div class="login-hero-shade" aria-hidden="true"></div>
+        <div class="login-hero-copy">
+          <img class="login-hero-logo" src="/painel/brand-assets/logo-bot.png" alt="">
+          <div><p class="eyebrow">COMMUNITY FOR GOATS</p><h1>Seu servidor, sob controle.</h1><p>Uma central para acompanhar e gerenciar sua comunidade.</p></div>
+        </div>
+      </section>
+      <section class="login-card">
+        <img class="login-card-logo" src="/painel/brand-assets/logo-bot.png" alt="Logo da Community For Goats">
+        <p class="eyebrow">ÁREA ADMINISTRATIVA</p>
+        <h2>Entrar no painel</h2>
+        <p class="muted">Abra pelo botão <strong>Ver na web</strong> do painel privado do Discord para entrar automaticamente. Também pode usar sua chave de acesso.</p>
+        <form id="login-form">
+          <label for="password">Chave de acesso</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button class="primary wide" type="submit">Entrar</button>
+          <p id="login-error" class="error" aria-live="polite"></p>
+        </form>
+        <p class="login-secure"><span class="icon-mask icon-shield-check" aria-hidden="true"></span> Acesso privado aos administradores</p>
+      </section>
+    </div>
   </main>
 
   <div id="app" class="app-shell" hidden>
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark small" aria-hidden="true">STZ</span><div><strong>Central de controle</strong><small>Community for FiveM</small></div></div>
+      <div class="brand"><img class="brand-logo" src="/painel/brand-assets/logo-bot.png" alt=""><div><strong>Central de controle</strong><small>Community For Goats</small></div></div>
       <nav id="navigation" aria-label="Seções do painel">
         <p class="nav-caption">VISÃO GERAL</p>
         <button data-page="overview" data-label="Visão geral" class="nav-item active" aria-current="page"><span class="nav-icon icon-mask icon-layout-dashboard" aria-hidden="true"></span><span>Visão geral</span></button>
