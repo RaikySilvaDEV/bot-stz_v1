@@ -48,6 +48,10 @@ const PAGE_FILES = {
     '/painel/app.js': ['app.js', 'text/javascript; charset=utf-8'],
     '/painel/style.css': ['style.css', 'text/css; charset=utf-8']
 };
+const BRAND_ASSETS = new Map([
+    ['banner-socio-server-bot.png', 'image/png'],
+    ['logo-bot.png', 'image/png']
+]);
 const LUCIDE_ICONS = new Set(fs.readdirSync(path.join(PUBLIC_DIR, 'icons')).filter(name => name.endsWith('.svg')));
 
 function responder(res, status, data) {
@@ -188,6 +192,14 @@ export async function handleDashboardRoute(req, res, url, readJson) {
     if (req.method === 'GET' && PAGE_FILES[pathname]) {
         const [filename, contentType] = PAGE_FILES[pathname];
         sendPageFile(res, filename, contentType);
+        return true;
+    }
+    const brandAssetMatch = pathname.match(/^\/painel\/brand-assets\/([a-z0-9-]+\.png)$/);
+    if (req.method === 'GET' && brandAssetMatch) {
+        const filename = brandAssetMatch[1];
+        const contentType = BRAND_ASSETS.get(filename);
+        if (!contentType) return responder(res, 404, { erro: 'Imagem não encontrada.' }), true;
+        sendPageFile(res, `brand-assets/${filename}`, contentType);
         return true;
     }
     const wallpaperImageMatch = pathname.match(/^\/painel\/wallpaper-images\/([^/]+)$/);
