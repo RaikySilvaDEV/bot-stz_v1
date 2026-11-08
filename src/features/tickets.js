@@ -7,12 +7,25 @@ import { getCommerceConfig, getCommerceProducts } from '../repositories/commerce
 import { getProductPriceCents } from '../repositories/productCatalogRepository.js';
 import { logAction } from '../services/audit.js';
 import { generateAssistantResponse, getAssistantStatus } from '../services/assistantProvider.js';
+import { enviarRespostaDiscord } from '../services/discordMessages.js';
 const ultimoAtendimentoPorCanal = new Map();
 const ultimaMensagemTentadaPorCanal = new Map();
 const avisoIaIndisponivelPorCanal = new Set();
+const avisoAguardarPorCanal = new Map();
 const saudacoesIniciaisEmAndamento = new Set();
 const perguntasDeCompraEmAndamento = new Set();
 let varreduraEmAndamento = false;
+
+async function avisarAguardarResposta(channel, userId) {
+    const lastNoticeAt = avisoAguardarPorCanal.get(channel.id) ?? 0;
+    if (Date.now() - lastNoticeAt < 45_000) return false;
+    avisoAguardarPorCanal.set(channel.id, Date.now());
+    await channel.send({
+        content: `⏳ <@${userId}>, recebi sua mensagem e estou preparando a resposta. Aguarde eu concluir antes de enviar outra; se tiver mais detalhes, mande tudo junto em uma mensagem.`,
+        allowedMentions: { users: [userId], parse: [] }
+    });
+    return true;
+}
 
 const PROMPT_SISTEMA_TICKET = `Você é o assistente virtual profissional da Community for FiveM.
 Interprete gírias e abreviações informais do usuário (como 'q', 'oq', 'n', 'ss', 'tô').
@@ -78,7 +91,7 @@ export async function iniciarAtendimentoAutomatico(channel, userId, selectedOpti
         }
 
         resposta = resposta.replaceAll('CHAVE_HUMANO', '').trim();
-        await channel.send({ content: `Olá <@${userId}>! ${resposta}`.slice(0, 1900), allowedMentions: { users: [userId], parse: [] } });
+        await enviarRespostaDiscord(channel, `Olá <@${userId}>! ${resposta}`, { allowedMentions: { users: [userId], parse: [] } });
         avisoIaIndisponivelPorCanal.delete(channel.id);
         await logAction(channel.guild, client.user.id, 'IA iniciou atendimento ao abrir ticket', `Canal ${channel.name}`);
     } catch (error) {
@@ -108,7 +121,7 @@ export async function iniciarAjudaCompraAutomatica(channel, userId) {
             await channel.send({ content: `Olá <@${userId}>! Selecione um produto no menu do carrinho; se quiser falar com a equipe, chame <@&${CARGO_STAFF_SUPORTE_ID}>.`, allowedMentions: { users: [userId], roles: [CARGO_STAFF_SUPORTE_ID] } });
             return;
         }
-        await channel.send({ content: `Olá <@${userId}>! ${answer.replaceAll('CHAVE_HUMANO', '').trim()}`.slice(0, 1900), allowedMentions: { users: [userId], parse: [] } });
+        await enviarRespostaDiscord(channel, `Olá <@${userId}>! ${answer.replaceAll('CHAVE_HUMANO', '').trim()}`, { allowedMentions: { users: [userId], parse: [] } });
         avisoIaIndisponivelPorCanal.delete(channel.id);
         await logAction(channel.guild, client.user.id, 'Assistente iniciou atendimento de compra', `Canal ${channel.name}`);
     } catch (error) {
@@ -138,6 +151,7 @@ async function responderPerguntaDeCompra(message) {
             return;
         }
 
+        await avisarAguardarResposta(message.channel, ownerId);
         await message.channel.sendTyping();
         const context = `Informações atuais e seguras da loja (JSON): ${JSON.stringify(obterResumoCatalogo())}\nPergunta do cliente: ${message.content}`;
         const answer = await generateAssistantResponse(PROMPT_SISTEMA_COMPRA, [{ role: 'user', content: context }], { userId: ownerId });
@@ -146,15 +160,17 @@ async function responderPerguntaDeCompra(message) {
             await logAction(message.guild, client.user.id, 'Dúvida de compra encaminhada à equipe', `Canal ${message.channel.name}`);
             return;
         }
-        await message.reply({ content: answer.replaceAll('CHAVE_HUMANO', '').trim().slice(0, 1900), allowedMentions: { parse: [] } });
+        await enviarRespostaDiscord(message.channel, answer.replaceAll('CHAVE_HUMANO', '').trim(), { replyTo: message, allowedMentions: { parse: [] } });
         avisoIaIndisponivelPorCanal.delete(message.channel.id);
     } catch (error) {
-        console.error(`[tickets-compra:${message.channel.id}] Falha ao responder dúvida:`, error.message);
-        const response = error.status === 429
-            ? error.message
+        const congestion = error.status === 429 || error.status === 503;
+        console[congestion ? 'info' : 'error'](`[tickets-compra:${message.channel.id}] ${congestion ? 'Assistente ocupada' : 'Falha ao responder dúvida'}:`, error.message);
+        const response = congestion
+            ? '⏳ A assistente está concluindo outros atendimentos. Aguarde um pouco; se ainda precisar, envie sua pergunta novamente uma única vez.'
             : '⚠️ Não consegui responder agora. O menu do carrinho continua disponível; se a dúvida for sobre um pedido, chame a equipe.';
         await message.reply({ content: response.slice(0, 1900), allowedMentions: { parse: [] } }).catch(() => {});
     } finally {
+        avisoAguardarPorCanal.delete(message.channel.id);
         perguntasDeCompraEmAndamento.delete(message.id);
     }
 }
@@ -172,6 +188,7 @@ client.on('channelDelete', channel => {
     ultimoAtendimentoPorCanal.delete(channel.id);
     ultimaMensagemTentadaPorCanal.delete(channel.id);
     avisoIaIndisponivelPorCanal.delete(channel.id);
+    avisoAguardarPorCanal.delete(channel.id);
 });
 
 export function iniciarVarreduraTicketsOrfaos() {
@@ -219,6 +236,7 @@ export function iniciarVarreduraTicketsOrfaos() {
                         const ultimaMensagemDoBot = msgsOrdenadas.find(m => m.author.id === client.user.id);
                         const botJaRespondeuRecente = ultimaMensagemDoBot && ultimaMensagemDoBot.createdTimestamp > ultimaMsg.createdTimestamp;
                         if (!botJaRespondeuRecente) {
+                            await avisarAguardarResposta(canalTicket, ultimaMsg.author.id);
                             await canalTicket.sendTyping();
 
                             let respostaIA;
@@ -228,10 +246,15 @@ export function iniciarVarreduraTicketsOrfaos() {
                                     content: message.content || '[mensagem com anexo]'
                                 })), { userId: ultimaMsg.author.id });
                             } catch (error) {
-                                console.error(`[tickets:${canalTicket.id}] IA local indisponível:`, error.message);
+                                const congestion = error.status === 429 || error.status === 503;
+                                console[congestion ? 'info' : 'error'](`[tickets:${canalTicket.id}] ${congestion ? 'Assistente ocupada' : 'IA local indisponível'}:`, error.message);
                                 avisoIaIndisponivelPorCanal.add(canalTicket.id);
-                                await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: não consegui consultar a IA local. A equipe precisa responder manualmente. (${error.message})`);
-                                await logAction(guild, client.user.id, 'Falha na IA local do ticket', `Canal ${canalTicket.name}`);
+                                if (congestion) {
+                                    await canalTicket.send('⏳ A assistente está atendendo outros tickets. Aguarde um pouco e envie sua pergunta novamente uma única vez.');
+                                } else {
+                                    await canalTicket.send(`⚠️ <@${MEU_ID_USUARIO}>: não consegui consultar a IA local. A equipe precisa responder manualmente. (${error.message})`);
+                                    await logAction(guild, client.user.id, 'Falha na IA local do ticket', `Canal ${canalTicket.name}: ${error.message}`);
+                                }
                                 continue;
                             }
 
@@ -243,7 +266,8 @@ export function iniciarVarreduraTicketsOrfaos() {
                             }
 
                             respostaIA = respostaIA.replace("CHAVE_HUMANO", "").trim();
-                            await ultimaMsg.reply({ content: respostaIA.slice(0, 1900), allowedMentions: { parse: [] } });
+                            await enviarRespostaDiscord(canalTicket, respostaIA, { replyTo: ultimaMsg, allowedMentions: { parse: [] } });
+                            avisoAguardarPorCanal.delete(canalTicket.id);
                             avisoIaIndisponivelPorCanal.delete(canalTicket.id);
                             ultimoAtendimentoPorCanal.set(canalTicket.id, Date.now());
                         }

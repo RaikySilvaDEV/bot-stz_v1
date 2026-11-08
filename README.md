@@ -89,7 +89,7 @@ O botão **Abrir painel web** no painel administrativo do Discord cria um acesso
 
 A Assistente do painel é consultiva: responde sobre o estado resumido do projeto, mas não altera configurações. Ela usa o modelo Ollama local e não precisa de chave de API. Confira a disponibilidade em **Serviços**. Não inclua tokens, senhas, chaves Pix ou dados de clientes nas perguntas.
 
-No Discord, `/ia perguntar` consulta o modelo sob demanda; `/ia status` mostra disponibilidade, modelo, fila e tempo da última geração; `/ia ajuda` resume os comandos. O atendimento de tickets usa a mesma fila limitada. Por padrão, só há uma inferência por vez, até 3 pedidos aguardando, cooldown de 15 segundos por usuário e até 12 solicitações por minuto no processo. Requisições repetidas são bloqueadas, e a geração é cancelada no encerramento do processo.
+No Discord, `/ia perguntar` consulta o modelo sob demanda; `/ia status` mostra disponibilidade, modelo, fila e tempo da última geração; `/ia ajuda` resume os comandos. O atendimento de tickets usa a mesma fila limitada. Por padrão, há uma inferência por vez e até 5 pedidos aguardando, com limite de 12 solicitações por minuto. O bot confirma que recebeu a mensagem e pede para o cliente aguardar enquanto responde. Respostas longas são continuadas quando o Ollama informa que atingiu o limite de tokens e enviadas em partes que respeitam o limite do Discord.
 
 ### Ollama no Windows
 
@@ -102,7 +102,7 @@ Invoke-RestMethod http://127.0.0.1:11434/api/tags
 
 Se o modelo ainda não estiver instalado, execute `ollama pull qwen2.5:0.5b`. Em `.env`, mantenha `OLLAMA_HOST=http://127.0.0.1:11434` e `OLLAMA_ENABLED=true`. Não configure `OLLAMA_HOST` com IP público ou endereço de outra máquina. Para desativar apenas a IA, defina `OLLAMA_ENABLED=false`; não é necessário parar o bot. Reinicie o processo do bot depois de alterar `.env` para carregar as opções.
 
-As opções de inferência ficam no `.env` do bot: `OLLAMA_TIMEOUT_MS`, `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_THREAD`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_CONCURRENT` e `OLLAMA_MAX_QUEUE`. Os limites de proteção são `OLLAMA_USER_COOLDOWN_MS`, `OLLAMA_GLOBAL_RPM`, `OLLAMA_MAX_PROMPT_CHARS` e `OLLAMA_MAX_RESPONSE_CHARS`. Os valores iniciais estão em `.env.example`; concorrência é limitada a uma geração para preservar o notebook. `num_thread`, contexto e `keep_alive` são parâmetros de solicitação, não garantias rígidas de CPU ou RAM; tempo real depende do modelo, contexto e carga do Windows.
+As opções de inferência ficam no `.env` do bot: `OLLAMA_TIMEOUT_MS`, `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_THREAD`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_CONCURRENT` e `OLLAMA_MAX_QUEUE`. Os limites de proteção são `OLLAMA_GLOBAL_RPM`, `OLLAMA_MAX_PROMPT_CHARS` e `OLLAMA_MAX_RESPONSE_CHARS`. Os valores iniciais estão em `.env.example`; concorrência é limitada a uma geração para preservar o notebook. `num_thread`, contexto e `keep_alive` são parâmetros de solicitação, não garantias rígidas de CPU ou RAM; tempo real depende do modelo, contexto e carga do Windows.
 
 ## Recursos do bot
 
@@ -180,7 +180,7 @@ O repasse ao sócio usa a porcentagem configurada sobre cada pedido confirmado c
 | `OLLAMA_MODEL` | Modelo Ollama já baixado (padrão `qwen2.5:0.5b`). |
 | `OLLAMA_TIMEOUT_MS`, `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_THREAD`, `OLLAMA_KEEP_ALIVE` | Limite de tempo e parâmetros por geração local. |
 | `OLLAMA_MAX_CONCURRENT`, `OLLAMA_MAX_QUEUE` | Concorrência (limitada a uma geração) e limite de fila. |
-| `OLLAMA_USER_COOLDOWN_MS`, `OLLAMA_GLOBAL_RPM` | Proteção contra excesso de consultas. |
+| `OLLAMA_GLOBAL_RPM` | Proteção contra excesso de consultas; solicitações permitidas aguardam na fila da IA. |
 | `OLLAMA_MAX_PROMPT_CHARS`, `OLLAMA_MAX_RESPONSE_CHARS` | Limites do texto enviado e retornado. |
 | `API_KEY` | Bearer da API de anúncios e fallback de senha do painel. |
 | `DASHBOARD_PASSWORD` | Senha dedicada ao painel (recomendado). |

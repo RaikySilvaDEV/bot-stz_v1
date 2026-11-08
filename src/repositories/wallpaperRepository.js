@@ -26,7 +26,45 @@ function wallpaperNumbers() {
         .filter(Boolean).map(Number));
 }
 
+function imageFilesRecursively(directory = PATHS.wallpapers, found = []) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const absolutePath = path.join(directory, entry.name);
+        if (entry.isDirectory()) imageFilesRecursively(absolutePath, found);
+        else if (entry.isFile() && EXTENSIONS.has(path.extname(entry.name).toLowerCase())) found.push(absolutePath);
+    }
+    return found;
+}
+
+export function normalizeWallpaperSequence() {
+    fs.mkdirSync(PATHS.wallpapers, { recursive: true });
+    const currentDay = getWallpaperState().diaAtual;
+    const occupied = wallpaperNumbers();
+    const root = path.resolve(PATHS.wallpapers);
+    const legacyFiles = imageFilesRecursively().filter(file => {
+        const relative = path.relative(root, file);
+        return path.dirname(relative) !== '.' || !/^\d+\.(?:png|jpe?g|webp|gif)$/i.test(path.basename(file));
+    }).sort((a, b) => path.relative(root, a).localeCompare(path.relative(root, b), 'pt-BR', { numeric: true }));
+
+    for (const source of legacyFiles) {
+        let day = currentDay;
+        while (day <= 105 && occupied.has(day)) day += 1;
+        if (day > 105) {
+            day = 1;
+            while (day < currentDay && occupied.has(day)) day += 1;
+        }
+        if (day > 105 || occupied.has(day)) {
+            console.warn(`[wallpapers] Não foi possível numerar ${path.basename(source)}: dias de 1 a 105 já estão ocupados.`);
+            continue;
+        }
+        const target = path.join(root, `${day}${path.extname(source).toLowerCase()}`);
+        fs.renameSync(source, target);
+        occupied.add(day);
+        console.info(`[wallpapers] ${path.relative(root, source)} organizado como ${path.basename(target)}.`);
+    }
+}
+
 export function listWallpapers() {
+    normalizeWallpaperSequence();
     const currentDay = getWallpaperState().diaAtual;
     const numbers = wallpaperNumbers();
     const files = fs.readdirSync(PATHS.wallpapers, { withFileTypes: true })
@@ -71,6 +109,7 @@ export function getWallpaperImageContentType(filename) {
 }
 
 export function getWallpaperPath(day) {
+    normalizeWallpaperSequence();
     const prefix = `${day}.`;
     const filename = fs.existsSync(PATHS.wallpapers)
         ? fs.readdirSync(PATHS.wallpapers).find(name => name.startsWith(prefix) && EXTENSIONS.has(path.extname(name).toLowerCase()))
