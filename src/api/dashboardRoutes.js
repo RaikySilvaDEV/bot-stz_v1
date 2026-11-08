@@ -38,7 +38,9 @@ import { logAction } from '../services/audit.js';
 import { getTicketPanelConfig, updateTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
 import { getWallpaperImageContentType, listWallpapers, MAX_WALLPAPER_BYTES, readWallpaperImage, saveWallpaper } from '../repositories/wallpaperRepository.js';
 import { createScheduledAnnouncement, getScheduledAnnouncements, removeScheduledAnnouncement, updateScheduledAnnouncement } from '../repositories/scheduledAnnouncementsRepository.js';
-import { configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
+import { configurarCanalVerificacao, configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
+import { publicarAvisoCanalRestrito } from '../features/announcementNotice.js';
+import { BOT_ANNOUNCEMENT_LABELS, getBotAnnouncements, updateBotAnnouncements } from '../repositories/botAnnouncementsRepository.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
     dashboardLoginResponse, dashboardLogoutResponse, dashboardPasswordValid,
@@ -264,6 +266,28 @@ export async function handleDashboardRoute(req, res, url, readJson) {
     }
 
     try {
+        if (pathname === '/api/painel/bot-announcements' && req.method === 'GET') {
+            return responder(res, 200, { announcements: getBotAnnouncements(), labels: BOT_ANNOUNCEMENT_LABELS }), true;
+        }
+        if (pathname === '/api/painel/bot-announcements' && req.method === 'PUT') {
+            const body = await readJson(req);
+            let announcements;
+            try { announcements = updateBotAnnouncements(body?.announcements); }
+            catch (error) { return responder(res, 400, { erro: error.message }), true; }
+            updateTicketPanelConfig({ maintenance: { title: announcements.maintenanceTitle, message: announcements.maintenanceMessage } });
+            const publishResults = {};
+            if (Object.hasOwn(body.announcements ?? {}, 'verificationTitle') || Object.hasOwn(body.announcements ?? {}, 'verificationDescription')) {
+                await configurarCanalVerificacao();
+                publishResults.verification = true;
+            }
+            if (Object.hasOwn(body.announcements ?? {}, 'restrictedChannel')) {
+                try { await publicarAvisoCanalRestrito(); publishResults.restrictedChannel = true; }
+                catch (error) { publishResults.restrictedChannel = false; console.warn('[painel-web] O texto foi salvo, mas não consegui atualizar o aviso do canal restrito:', error.message); }
+            }
+            const guild = client.guilds.cache.get(GUILD_ID);
+            await logAction(guild, 'painel-web', 'Avisos do bot atualizados', `${Object.keys(body.announcements ?? {}).length} texto(s)`);
+            return responder(res, 200, { announcements, labels: BOT_ANNOUNCEMENT_LABELS, publishResults }), true;
+        }
         if (pathname === '/api/painel/scheduled-announcements' && req.method === 'GET') {
             return responder(res, 200, { announcements: getScheduledAnnouncements() }), true;
         }
@@ -491,7 +515,10 @@ export async function handleDashboardRoute(req, res, url, readJson) {
                 update.channels = next;
             }
             if (body?.ticketPanels !== undefined) {
-                try { updateTicketPanelConfig(body.ticketPanels); }
+                try {
+                    const ticketPanels = updateTicketPanelConfig(body.ticketPanels);
+                    if (body.ticketPanels?.maintenance) updateBotAnnouncements({ maintenanceTitle: ticketPanels.maintenance.title, maintenanceMessage: ticketPanels.maintenance.message });
+                }
                 catch (error) { return responder(res, 400, { erro: error.message }), true; }
             }
             const settings = updateSettings(update);
@@ -505,7 +532,10 @@ export async function handleDashboardRoute(req, res, url, readJson) {
         if (pathname === '/api/painel/maintenance/announce' && req.method === 'POST') {
             const body = await readJson(req);
             if (body?.message !== undefined) {
-                try { updateTicketPanelConfig({ maintenance: { message: body.message } }); }
+                try {
+                    updateTicketPanelConfig({ maintenance: { message: body.message } });
+                    updateBotAnnouncements({ maintenanceMessage: body.message });
+                }
                 catch (error) { return responder(res, 400, { erro: error.message }), true; }
             }
             const result = await publicarAvisoManutencao();

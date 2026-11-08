@@ -24,6 +24,11 @@ import { acquireLocalProcessLock } from '../services/localProcessLock.js';
 import {
     getScheduledAnnouncements, markScheduledAnnouncementSent, wasScheduledAnnouncementSent
 } from '../repositories/scheduledAnnouncementsRepository.js';
+import { getBotAnnouncements } from '../repositories/botAnnouncementsRepository.js';
+
+function aplicarModeloAviso(modelo, valores) {
+    return String(modelo).replace(/\{([a-z_]+)\}/gi, (token, chave) => Object.hasOwn(valores, chave) ? valores[chave] : token);
+}
 
 const ultimasMensagensLoop = new Map(Object.entries(getAutomationMessageIds()));
 const ultimoAvisoAssetAusente = new Map();
@@ -116,6 +121,7 @@ export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveL
 
 export function gerarPayloadsLoop(purchaseChannelId = null) {
     const settings = getSettings();
+    const templates = getBotAnnouncements();
     const saudacao = getSaudacaoDinamica(new Date(), settings.timezone);
     const hora = getScheduleDateParts(new Date(), settings.timezone).hour;
     const greetingImage = path.join(PATHS.greetingImages, hora < 12 ? 'bom-dia.png' : hora < 18 ? 'boa-tarde.png' : 'boa-noite.png');
@@ -140,12 +146,13 @@ export function gerarPayloadsLoop(purchaseChannelId = null) {
     const purchaseDestination = purchaseChannelId
         ? `🚀 **Adquira o PrecisionFix:**\n<#${purchaseChannelId}>`
         : '🚀 **Adquira o PrecisionFix:**\nAbra o carrinho pelo painel de compras do servidor.';
+    const replacements = { saudacao, produtos: productList, canal_compra: purchaseDestination, canal_verificacao: `<#${settings.channels.verification}>` };
     return {
-        payloadComprasOnline: greetingPayload(`${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n${productList}\n\nAbra seu carrinho no painel de compras para ver os detalhes e finalizar o pedido.\n\n@everyone`),
-        payloadVendasSuporte: greetingPayload(`${saudacao}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone`),
-        payloadSugestao: greetingPayload(`${saudacao}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone`),
-        payloadNovidadesCargos: { content: `# ✨ NOVIDADES NA COMMUNITY FOR FIVEM! ✨\nAtualizamos nossos cargos e vantagens!\n\n@everyone`, allowedMentions },
-        payloadInfoPrecision: greetingPayload(`${saudacao}\n\n⚡ **BOT ONLINE • INFORMAÇÕES SOBRE O PRECISIONFIX**\n\nO bot está online.\n\n🔹 **Faça sua verificação:**\n<#${settings.channels.verification}>\n\n${purchaseDestination}\n\n> ⚠️ O acesso do PrecisionFix dura **5 dias**.\n\n@everyone`)
+        payloadComprasOnline: greetingPayload(aplicarModeloAviso(templates.sales, replacements)),
+        payloadVendasSuporte: greetingPayload(aplicarModeloAviso(templates.support, replacements)),
+        payloadSugestao: greetingPayload(aplicarModeloAviso(templates.suggestions, replacements)),
+        payloadNovidadesCargos: { content: aplicarModeloAviso(templates.roleNews, replacements), allowedMentions },
+        payloadInfoPrecision: greetingPayload(aplicarModeloAviso(templates.precisionInfo, replacements))
     };
 }
 
@@ -283,10 +290,11 @@ export async function dispararWallpaperDiario() {
         const recent = await canal.messages.fetch({ limit: 100 }).catch(() => null);
         if (!recent) return false;
         const alreadySentToday = recent.find(message => message.author.id === client.user.id &&
-            message.content.startsWith('🖼️ **Wallpaper do Dia • Dia ') &&
+            message.attachments.some(attachment => /^wallpaper-dia-\d+\./i.test(attachment.name ?? '')) &&
             getScheduleDateParts(message.createdAt, settings.timezone).dateKey === dateKey);
         if (alreadySentToday) {
-            const postedDay = Number(alreadySentToday.content.match(/Dia (\d+)\/105/)?.[1]);
+            const postedAttachment = alreadySentToday.attachments.find(attachment => /^wallpaper-dia-\d+\./i.test(attachment.name ?? ''));
+            const postedDay = Number(postedAttachment?.name?.match(/^wallpaper-dia-(\d+)\./i)?.[1]);
             const currentDay = getWallpaperState().diaAtual;
             if (postedDay === currentDay) saveWallpaperState({ diaAtual: currentDay >= 105 ? 1 : currentDay + 1 });
             ultimaTentativaWallpaper = { dateKey, at: Date.now() };
@@ -307,9 +315,10 @@ export async function dispararWallpaperDiario() {
     }
 
     try {
-        const messageContent = `🖼️ **Wallpaper do Dia • Dia ${diaAtual}/105**`;
+        const messageContent = aplicarModeloAviso(getBotAnnouncements().wallpaper, { dia: diaAtual });
         const recent = await canal.messages.fetch({ limit: 25 }).catch(() => null);
-        const alreadyPosted = recent?.find(message => message.author.id === client.user.id && message.content === messageContent &&
+        const alreadyPosted = recent?.find(message => message.author.id === client.user.id &&
+            (message.content === messageContent || message.attachments.some(attachment => attachment.name?.toLowerCase().startsWith(`wallpaper-dia-${diaAtual}.`))) &&
             getScheduleDateParts(message.createdAt, settings.timezone).dateKey === dateKey);
         if (alreadyPosted) {
             saveWallpaperState({ diaAtual: diaAtual >= 105 ? 1 : diaAtual + 1 });
@@ -377,7 +386,7 @@ export async function processarEnvioArmazemDiario(guild, nomeArmazem, pastaArmaz
         fs.mkdirSync(pastaArmazem, { recursive: true });
         const item = armazemEstado.indexAtual;
         const titulo = nomeArmazem === 'ctz' ? 'Armazém CTZ' : 'Armazém CTZ Boosters';
-        const messageContent = `📦 **[${titulo}] • Item #${item}**\n\n@everyone`;
+        const messageContent = aplicarModeloAviso(getBotAnnouncements().warehouse, { armazem: titulo, item });
         const existingPost = await findExistingWarehousePostForDate(canal, messageContent, dateKey, settings.timezone);
         if (existingPost) {
             armazemEstado.indexAtual += 1;

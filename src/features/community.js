@@ -5,6 +5,7 @@ import { CANAL_PAINEL_PARCERIA_ANTIGO_ID, PATHS } from '../config/constants.js';
 import { getSaudacaoDinamica } from '../services/greetings.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { getTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
+import { getBotAnnouncements } from '../repositories/botAnnouncementsRepository.js';
 client.on('guildMemberAdd', async (member) => {
     try {
         const canalBoasVindas = await member.guild.channels.fetch(getSettings().channels.welcome).catch(() => null);
@@ -13,16 +14,19 @@ client.on('guildMemberAdd', async (member) => {
         const saudacao = getSaudacaoDinamica();
         const avatarUrl = member.user.displayAvatarURL({ extension: 'png', size: 512 });
 
+        const announcements = getBotAnnouncements();
+        const verification = getSettings().channels.verification ? `<#${getSettings().channels.verification}>` : 'o canal de verificação';
+        const replace = (value) => value.replace(/\{([a-z_]+)\}/gi, (token, key) => ({ saudacao, membro: `<@${member.id}>`, canal_verificacao: verification, member_count: String(member.guild.memberCount) })[key] ?? token);
         const embed = new EmbedBuilder()
             .setColor(0x00FFCC)
-            .setTitle(`✨ • BEM-VINDO(A) À COMMUNITY FOR FIVEM!`)
-            .setDescription(`${saudacao} Olá <@${member.id}>, seja muito bem-vindo(a) ao nosso servidor!\n\n📋 **Próximo passo importante:**\nFaça a sua verificação aqui:\n👉 <#${getSettings().channels.verification}>`)
+            .setTitle(replace(announcements.welcomeTitle))
+            .setDescription(replace(announcements.welcomeDescription))
             .setThumbnail(avatarUrl)
             .setFooter({ text: `Membro nº ${member.guild.memberCount}` })
             .setTimestamp();
 
         const payload = {
-            content: `🎉 Olá <@${member.id}>! Seja bem-vindo(a)!`,
+            content: replace(announcements.welcomeContent),
             embeds: [embed]
         };
         if (fs.existsSync(PATHS.welcomeImage)) {
@@ -42,9 +46,12 @@ export async function configurarCanalVerificacao() {
         if (!channel) return;
         const messages = await channel.messages.fetch({ limit: 10 });
         const existingMessage = messages.find(m => m.author.id === client.user.id && m.components.length > 0 && m.components[0].components.some(c => c.customId === 'botao_verificar'));
-        const embed = new EmbedBuilder().setColor(0x00FF00).setTitle("✅ • VERIFICAÇÃO DE ACESSO").setDescription("Bem-vindo(a) à **Community for FiveM・**!\n\nClique no botão abaixo para se verificar.").setTimestamp();
+        const announcements = getBotAnnouncements();
+        const embed = new EmbedBuilder().setColor(0x00FF00).setTitle(announcements.verificationTitle).setDescription(announcements.verificationDescription).setTimestamp();
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('botao_verificar').setLabel('Verificar-se').setStyle(ButtonStyle.Success).setEmoji('✅'));
-        if (!existingMessage) await channel.send({ embeds: [embed], components: [row] });
+        const payload = { embeds: [embed], components: [row] };
+        if (existingMessage) await existingMessage.edit(payload);
+        else await channel.send(payload);
     } catch (error) { console.error('[verificação] Falha ao configurar painel:', error); }
 }
 
@@ -89,12 +96,12 @@ export async function configurarPainelTickets() {
 
 export async function publicarAvisoManutencao() {
     const settings = getSettings();
-    const config = getTicketPanelConfig();
     const channelId = settings.channels.supportNotices;
     const channel = channelId ? await client.channels.fetch(channelId).catch(() => null) : null;
     if (!channel?.isTextBased()) return { ok: false, reason: 'Configure um canal de avisos válido no painel web.' };
-    const embed = new EmbedBuilder().setColor(0xF1C40F).setTitle(`🛠️ ${config.maintenance.title}`)
-        .setDescription(config.maintenance.message).setTimestamp();
+    const announcements = getBotAnnouncements();
+    const embed = new EmbedBuilder().setColor(0xF1C40F).setTitle(`🛠️ ${announcements.maintenanceTitle}`)
+        .setDescription(announcements.maintenanceMessage).setTimestamp();
     await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
     return { ok: true, channelId: channel.id };
 }

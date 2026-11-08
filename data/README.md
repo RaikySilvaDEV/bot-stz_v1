@@ -17,6 +17,7 @@ Os arquivos desta pasta são o armazenamento local persistente do bot. O código
 | `ticket-activity.json` | Última atividade humana registrada em cada ticket |
 | `user-preferences.json` | Idioma escolhido por cada membro (`pt-BR`, `en-US` ou `es`) |
 | `scheduled-announcements.json` | Avisos com canal, horários, mensagem, imagem/GIF e controle ativo/pausado |
+| `bot-announcements.json` | Textos editáveis dos avisos automáticos, boas-vindas, verificação, manutenção, wallpaper e armazéns |
 | `metodos-pagamento.json` | Métodos da loja, estado ativo/inativo e referência ao canal público; a chave Pix fica apenas neste arquivo local ignorado pelo Git |
 | `catalogo-loja.json` | Preços personalizados dos produtos configurados pelo painel `/pagamentos`; sem preço personalizado, usa os valores padrão do catálogo |
 | `orders.json` | Histórico local dos últimos 5000 pedidos iniciados e status de confirmação manual |

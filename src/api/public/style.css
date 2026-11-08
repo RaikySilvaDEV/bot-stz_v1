@@ -866,6 +866,36 @@ footer { border-color:#2a2430; color:#92889a; }
 .table-wrap { max-width: 100%; overscroll-behavior-x: contain; }
 dialog { max-height: min(88dvh, 760px); overscroll-behavior: contain; }
 
+/* Avisos com texto longo precisam de espaço para leitura e edição. */
+#scheduled-announcement-dialog,
+#announcement-dialog { width: min(calc(100% - 32px), 920px); max-height: min(92dvh, 980px); }
+#scheduled-announcement-dialog .dialog-card,
+#announcement-dialog .dialog-card { gap: 12px; padding: clamp(22px, 3vw, 34px); }
+#scheduled-announcement-dialog textarea,
+#announcement-dialog textarea { min-height: 330px; line-height: 1.55; resize: vertical; }
+.bot-announcements-section { display: grid; gap: 10px; margin-top: 22px; }
+.bot-announcement-group { overflow: hidden; }
+.bot-announcement-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; cursor: pointer; list-style: none; }
+.bot-announcement-group > summary::-webkit-details-marker { display: none; }
+.bot-announcement-group > summary > span:first-child { display: grid; gap: 4px; }
+.bot-announcement-group > summary strong { font-size: 13px; }
+.bot-announcement-group > summary small { color: var(--muted); font-size: 11px; }
+.bot-announcement-group[open] > summary { border-bottom: 1px solid var(--line); }
+.bot-announcement-group[open] > summary > .icon-mask { transform: rotate(90deg); }
+.bot-announcement-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 18px; }
+.bot-announcement-form { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted, #f7f8fb); }
+.bot-announcement-form textarea { min-height: 150px; resize: vertical; line-height: 1.5; }
+.bot-announcement-form .detail { margin: 0; }
+@media (max-width: 680px) {
+  #scheduled-announcement-dialog,
+  #announcement-dialog { width: calc(100% - 20px); max-height: 94dvh; }
+  #scheduled-announcement-dialog .dialog-card,
+  #announcement-dialog .dialog-card { padding: 18px; }
+  #scheduled-announcement-dialog textarea,
+  #announcement-dialog textarea { min-height: 260px; }
+  .bot-announcement-list { grid-template-columns: 1fr; padding: 12px; }
+}
+
 @media (max-width: 1120px) {
   .app-shell { grid-template-columns: 204px minmax(0, 1fr); }
   .workspace { padding-inline: 20px; }
