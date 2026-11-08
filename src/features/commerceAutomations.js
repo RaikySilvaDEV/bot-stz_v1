@@ -22,6 +22,13 @@ function formatPrice(cents) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100);
 }
 
+function getOrderRoleIds(order) {
+    const recorded = [...new Set([...(order.deliveryRoleIds ?? []), order.deliveryRoleId].filter(id => typeof id === 'string' && /^\d{17,20}$/.test(id)))];
+    if (recorded.length) return recorded;
+    const product = getCommerceProduct(order.productValue);
+    return [...new Set([...(product?.roleIds ?? []), product?.roleId].filter(id => typeof id === 'string' && /^\d{17,20}$/.test(id)))];
+}
+
 async function registrarVendaEFecharTicket(order) {
     let guild = client.guilds.cache.get(order.guildId) ?? await client.guilds.fetch(order.guildId).catch(() => null);
     if (!guild) return false;
@@ -205,7 +212,8 @@ export async function runCommerceAutomations() {
         const config = getCommerceConfig();
         const now = Date.now();
         const guild = client.guilds.cache.get(GUILD_ID);
-        for (const order of getOrders()) {
+        const orders = getOrders();
+        for (const order of orders) {
             if (config.automations.automaticDelivery && order.status === 'delivered' && !order.deliveryRolesSyncedAt) {
                 await reconcileDeliveredOrderRoles(order, client.guilds.cache.get(order.guildId) ?? guild, now);
             }
@@ -228,15 +236,20 @@ export async function runCommerceAutomations() {
                     await user?.send(`Seu pedido **${order.productName}** expirou e o carrinho foi cancelado. Você pode iniciar uma nova compra quando quiser.`).catch(() => {});
                 }
             }
-            if (config.automations.roleExpiration && order.entitlementExpiresAt && !order.roleExpiredAt && Date.parse(order.entitlementExpiresAt) <= now && (order.deliveryRoleIds?.length || order.deliveryRoleId)) {
+            if (config.automations.roleExpiration && order.entitlementExpiresAt && !order.roleExpiredAt && Date.parse(order.entitlementExpiresAt) <= now) {
                 try {
+                    const roleIds = getOrderRoleIds(order);
+                    if (!roleIds.length) {
+                        console.warn(`[loja:expiracao:${order.id}] Pedido vencido sem cargos registrados ou configurados para o produto; será revisado novamente.`);
+                        continue;
+                    }
                     const targetGuild = client.guilds.cache.get(order.guildId) ?? guild;
+                    if (!targetGuild) throw new Error(`Servidor ${order.guildId} não está disponível para verificar a expiração.`);
                     const member = await targetGuild?.members.fetch(order.buyerId);
-                    const roleIds = [...new Set(order.deliveryRoleIds?.length ? order.deliveryRoleIds : [order.deliveryRoleId].filter(Boolean))];
-                    const orders = getOrders();
                     for (const roleId of roleIds) {
                         const hasNewerAccess = orders.some(other => other.id !== order.id && other.guildId === order.guildId && other.buyerId === order.buyerId &&
-                            (other.deliveryRoleIds?.includes(roleId) || other.deliveryRoleId === roleId) && other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt);
+                            ['paid', 'delivered', 'paid_waiting_delivery'].includes(other.status) && getOrderRoleIds(other).includes(roleId) &&
+                            other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt);
                         if (!hasNewerAccess && member?.roles.cache.has(roleId)) {
                             await member.roles.remove(roleId, `Acesso expirado no pedido ${order.id}`);
                             const role = await targetGuild.roles.fetch(roleId).catch(() => null);
