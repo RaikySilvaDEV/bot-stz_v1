@@ -201,7 +201,7 @@ function responderSobrePrecisionFix(text, { ticketCompra = false, contextoAnteri
     }
     if (language === 'en-US') return `${access} To buy, select Premium from the cart menu above and follow the payment steps. Can I help with anything else?`;
     if (language === 'es') return `${access} Para comprarlo, selecciona Premium en el menú del carrito y sigue los pasos de pago. ¿Puedo ayudarte con algo más?`;
-    return `${acesso} Para adquirir, selecione Cargo Premium no menu do carrinho acima e siga as etapas do pagamento. Posso ajudar com mais alguma dúvida?`;
+    return `${access} Para adquirir, selecione Cargo Premium no menu do carrinho acima e siga as etapas do pagamento. Posso ajudar com mais alguma dúvida?`;
 }
 
 export async function iniciarAtendimentoAutomatico(channel, userId, selectedOption = null) {
