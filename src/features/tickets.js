@@ -119,12 +119,41 @@ function normalizarTextoAtendimento(text) {
         .toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
 }
 
+function distanciaEdicao(a, b) {
+    let anterior = Array.from({ length: b.length + 1 }, (_, index) => index);
+    for (let i = 1; i <= a.length; i += 1) {
+        const atual = [i];
+        for (let j = 1; j <= b.length; j += 1) {
+            atual[j] = Math.min(
+                atual[j - 1] + 1,
+                anterior[j] + 1,
+                anterior[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+            );
+        }
+        anterior = atual;
+    }
+    return anterior[b.length];
+}
+
+function mencionaPrecisionFix(text) {
+    // Compacta separadores para reconhecer PrecisionFix, Precision Fix, Precision-Fix etc.
+    const compact = normalizarTextoAtendimento(text).replace(/\s/g, '');
+    const nomes = ['precisionfix', 'precisionfx'];
+    return nomes.some(nome => {
+        for (let inicio = 0; inicio < compact.length; inicio += 1) {
+            for (let tamanho = nome.length - 1; tamanho <= nome.length + 1; tamanho += 1) {
+                const trecho = compact.slice(inicio, inicio + tamanho);
+                if (trecho.length === tamanho && distanciaEdicao(trecho, nome) <= 1) return true;
+            }
+        }
+        return false;
+    });
+}
+
 function responderSobrePrecisionFix(text, { ticketCompra = false, contextoAnterior = '' } = {}) {
     const normalized = normalizarTextoAtendimento(text);
-    const normalizedContext = normalizarTextoAtendimento(contextoAnterior);
-    // Reconhece precisionfix, precision-fix, precision fix e erros comuns como precison fix.
-    const produtoNoTexto = /\bprecis(?:ion|on|ao)?\s*fix\b/.test(normalized);
-    const produtoNoContexto = /\bprecis(?:ion|on|ao)?\s*fix\b/.test(normalizedContext);
+    const produtoNoTexto = mencionaPrecisionFix(text);
+    const produtoNoContexto = mencionaPrecisionFix(contextoAnterior);
     const perguntaAcompanhamento = /\b(preco|valor|custa|quanto|gratis|gratuito|de graca|pago|comprar|compra|acesso|adquirir|ter|pegar|como|onde|baixar|obter|assinar|sim)\b/.test(normalized);
     if (!produtoNoTexto && !(produtoNoContexto && perguntaAcompanhamento)) return null;
 
