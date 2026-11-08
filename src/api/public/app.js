@@ -1,10 +1,13 @@
 const byId = id => document.getElementById(id);
 const pageFromStorage = localStorage.getItem('bot-dashboard-page');
-const validPages = new Set(['overview', 'services', 'automations', 'channels', 'announcements', 'config', 'store', 'payments', 'payouts', 'assistant']);
-const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], scheduledAnnouncements: [], botAnnouncements: {}, botAnnouncementLabels: {}, wallpapers: { files: [], currentDay: 1, nextDay: 1, page: 1 }, assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
-const pageTitles = { overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', announcements: 'Avisos', config: 'Configuração', store: 'Loja', payments: 'Pagamentos', payouts: 'Repasses', assistant: 'Assistente' };
+const storedArea = localStorage.getItem('bot-dashboard-area');
+const validPages = new Set(['home', 'overview', 'services', 'automations', 'channels', 'announcements', 'config', 'store', 'payments', 'payouts', 'assistant']);
+const storePages = new Set(['store', 'payments', 'payouts']);
+const state = { data: null, page: storedArea ? (validPages.has(pageFromStorage) ? pageFromStorage : storedArea === 'store' ? 'store' : 'overview') : 'home', area: storedArea || 'home', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], scheduledAnnouncements: [], botAnnouncements: {}, botAnnouncementLabels: {}, wallpapers: { files: [], currentDay: 1, nextDay: 1, page: 1 }, assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
+const pageTitles = { home: 'O que você quer gerenciar?', overview: 'Dashboard do Discord', services: 'Serviços', automations: 'Automações', channels: 'Canais', announcements: 'Avisos', config: 'Configuração', store: 'Dashboard da Loja', payments: 'Pagamentos', payouts: 'Repasses', assistant: 'Assistente' };
 const pageDescriptions = {
-  overview: 'Acompanhe o estado do bot e encontre rapidamente o que precisa de atenção.',
+  home: 'Escolha uma área para configurar. Você pode trocar de área sem perder suas configurações.',
+  overview: 'Acompanhe sua comunidade, as automações e encontre o que precisa de atenção.',
   services: 'Veja se as conexões, integrações e recursos locais estão prontos.',
   automations: 'Ative ou pause cada rotina e confira suas dependências.',
   channels: 'Crie, renomeie, mova e organize canais do servidor; confira também as permissões do bot.',
@@ -15,7 +18,7 @@ const pageDescriptions = {
   payouts: 'Configure a comissão do sócio, calcule valores e acompanhe os repasses Pix.',
   assistant: 'Tire dúvidas e receba orientação sobre a configuração do bot.'
 };
-const pageIcons = { overview: 'layout-dashboard', services: 'activity', automations: 'bot', channels: 'hash', announcements: 'megaphone', config: 'settings-2', store: 'store', payments: 'credit-card', payouts: 'wallet-cards', assistant: 'sparkles' };
+const pageIcons = { home: 'layout-dashboard', overview: 'layout-dashboard', services: 'activity', automations: 'bot', channels: 'hash', announcements: 'megaphone', config: 'settings-2', store: 'store', payments: 'credit-card', payouts: 'wallet-cards', assistant: 'sparkles' };
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const allowedIcons = new Set(['layout-dashboard', 'activity', 'bot', 'hash', 'megaphone', 'settings-2', 'store', 'credit-card', 'sparkles', 'search', 'refresh-cw', 'log-out', 'check', 'x', 'plus', 'arrow-up-right', 'chart-no-axes-combined', 'package-open', 'ticket-check', 'shopping-bag', 'clock-3', 'shield-check', 'users', 'arrow-right', 'send', 'messages-square', 'circle-question-mark', 'file-text', 'image', 'wallet-cards', 'external-link', 'circle-check']);
 function icon(name, className = '') {
@@ -63,6 +66,14 @@ function statusBadge(active, operational, configured = true) {
   if (!active) return badge('Inativo');
   if (!configured) return badge('Requer atenção', 'warn');
   return operational ? badge('Operante', 'ok') : badge('Ativo · requer atenção', 'warn');
+}
+
+function renderHome(data) {
+  byId('content').innerHTML = `<section class="area-home-intro"><span class="area-home-kicker">CENTRAL DE CONFIGURAÇÃO</span><h2>O que você quer gerenciar?</h2><p>Escolha uma área de <strong>${escapeHtml(data.server.name)}</strong>. Cada painel reúne as ferramentas relacionadas para você encontrar tudo sem se perder.</p></section>
+    <div class="area-choice-grid">
+      <button class="area-choice-card area-choice-discord" type="button" data-target="overview"><span class="area-choice-overline"><span class="icon-mask icon-messages-square" aria-hidden="true"></span> COMUNIDADE & AUTOMAÇÕES</span><span class="area-choice-title">Dashboard do Discord</span><span class="area-choice-description">Configure a experiência do servidor: entrada de membros, automações, mensagens, atendimento e divulgação.</span><span class="area-choice-features"><span>${icon('users')} Membros e participação</span><span>${icon('shield-check')} Moderação e segurança</span><span>${icon('messages-square')} Mensagens e atendimento</span></span><span class="area-choice-action">Configurar Discord ${icon('arrow-up-right')}</span></button>
+      <button class="area-choice-card area-choice-store" type="button" data-target="store"><span class="area-choice-overline"><span class="icon-mask icon-store" aria-hidden="true"></span> VENDAS & OPERAÇÃO</span><span class="area-choice-title">Dashboard da Loja</span><span class="area-choice-description">Cuide do catálogo, dos pedidos, dos clientes, dos pagamentos e da aparência da sua loja.</span><span class="area-choice-features"><span>${icon('package-open')} Produtos e pedidos</span><span>${icon('image')} Imagens e vitrine</span><span>${icon('credit-card')} Pagamentos e repasses</span></span><span class="area-choice-action">Gerenciar Loja ${icon('arrow-up-right')}</span></button>
+    </div><p class="area-home-foot"><span class="status-icon ${data.bot.ready ? 'is-ok' : 'is-warn'}" aria-hidden="true"></span>${data.bot.ready ? 'Bot conectado' : 'Bot desconectado'} · ${Number(data.server.members).toLocaleString('pt-BR')} membros · você pode trocar de área a qualquer momento.</p>`;
 }
 
 function renderOverview(data) {
@@ -804,7 +815,8 @@ function render() {
   if (!state.data) return;
   byId('page-title').textContent = pageTitles[state.page];
   byId('server-name').textContent = pageDescriptions[state.page];
-  byId('page-eyebrow').textContent = `${state.data.server.name} · ${Number(state.data.server.members).toLocaleString('pt-BR')} membros`;
+  byId('page-eyebrow').textContent = state.page === 'home' ? 'CENTRAL DE CONFIGURAÇÃO' : `${state.data.server.name} · ${Number(state.data.server.members).toLocaleString('pt-BR')} membros`;
+  byId('app').dataset.area = state.page === 'home' ? 'home' : state.area;
   byId('connection-label').textContent = state.data.bot.ready ? 'Bot conectado' : 'Bot desconectado';
   document.querySelector('.live-dot')?.classList.toggle('is-online', state.data.bot.ready);
   document.querySelector('.live-dot')?.classList.toggle('is-offline', !state.data.bot.ready);
@@ -815,13 +827,15 @@ function render() {
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
+    if (button.dataset.area) button.hidden = state.page === 'home' || button.dataset.area !== state.area;
   });
+  document.querySelectorAll('[data-nav-area]').forEach(group => { group.hidden = state.page === 'home' || group.dataset.navArea !== state.area; });
   byId('content').setAttribute('aria-busy', 'false');
   if (state.pageError) {
     byId('content').innerHTML = `<section class="card"><div class="section-head"><div><h2>Esta seção não carregou</h2><p class="detail">${escapeHtml(state.pageError)}</p></div></div><p class="detail">A Central continua disponível. Tente atualizar esta seção ou escolha outra opção no menu.</p><button class="primary" id="retry-page" type="button">${icon('refresh-cw')} Tentar novamente</button></section>`;
     return;
   }
-  ({ overview: renderOverview, services: renderServices, automations: renderAutomations, channels: renderChannels,
+  ({ home: renderHome, overview: renderOverview, services: renderServices, automations: renderAutomations, channels: renderChannels,
     announcements: renderAnnouncements, config: renderConfig, store: renderStore, payments: renderPayments,
     payouts: renderPayouts, assistant: renderAssistant })[state.page](state.data);
 }
@@ -860,7 +874,9 @@ async function loadPageData(page) {
 async function navigateToPage(page) {
   if (!validPages.has(page)) return;
   state.page = page;
+  state.area = page === 'home' ? 'home' : storePages.has(page) ? 'store' : 'discord';
   localStorage.setItem('bot-dashboard-page', page);
+  localStorage.setItem('bot-dashboard-area', state.area);
   byId('content').setAttribute('aria-busy', 'true');
   try {
     state.pageError = '';
@@ -939,6 +955,7 @@ function openQuickNavigation() {
 }
 
 byId('quick-open').addEventListener('click', openQuickNavigation);
+byId('area-switch').addEventListener('click', () => { void navigateToPage('home'); });
 byId('quick-search').addEventListener('input', event => renderQuickResults(event.currentTarget.value));
 byId('quick-search').addEventListener('keydown', event => {
   const options = [...byId('quick-results').querySelectorAll('[data-quick-page]')];

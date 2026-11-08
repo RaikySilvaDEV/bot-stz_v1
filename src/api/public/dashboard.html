@@ -41,19 +41,19 @@
     <aside class="sidebar">
       <div class="brand"><img class="brand-logo" src="/painel/brand-assets/logo-bot.png" alt=""><div><strong>Central de controle</strong><small>Community For Goats</small></div></div>
       <nav id="navigation" aria-label="Seções do painel">
-        <p class="nav-caption">VISÃO GERAL</p>
-        <button data-page="overview" data-label="Visão geral" class="nav-item active" aria-current="page"><span class="nav-icon icon-mask icon-layout-dashboard" aria-hidden="true"></span><span>Visão geral</span></button>
-        <button data-page="services" data-label="Serviços" class="nav-item"><span class="nav-icon icon-mask icon-activity" aria-hidden="true"></span><span>Serviços</span></button>
-        <button data-page="automations" data-label="Automações" class="nav-item"><span class="nav-icon icon-mask icon-bot" aria-hidden="true"></span><span>Automações</span></button>
-        <button data-page="channels" data-label="Canais" class="nav-item"><span class="nav-icon icon-mask icon-hash" aria-hidden="true"></span><span>Canais</span></button>
-        <p class="nav-caption nav-caption-spaced">GERENCIAR</p>
-        <button data-page="announcements" data-label="Avisos" class="nav-item"><span class="nav-icon icon-mask icon-megaphone" aria-hidden="true"></span><span>Avisos</span></button>
-        <button data-page="store" data-label="Loja" class="nav-item"><span class="nav-icon icon-mask icon-store" aria-hidden="true"></span><span>Loja</span></button>
-        <button data-page="payments" data-label="Pagamentos" class="nav-item"><span class="nav-icon icon-mask icon-credit-card" aria-hidden="true"></span><span>Pagamentos</span></button>
-        <button data-page="payouts" data-label="Repasses" class="nav-item"><span class="nav-icon icon-mask icon-wallet-cards" aria-hidden="true"></span><span>Repasses</span></button>
-        <button data-page="assistant" data-label="Assistente" class="nav-item"><span class="nav-icon icon-mask icon-sparkles" aria-hidden="true"></span><span>Assistente</span></button>
-        <p class="nav-caption nav-caption-spaced">CONFIGURAÇÃO</p>
-        <button data-page="config" data-label="Configuração" class="nav-item"><span class="nav-icon icon-mask icon-settings-2" aria-hidden="true"></span><span>Configuração</span></button>
+        <button data-page="home" data-label="Escolher área" class="nav-item area-home-link"><span class="nav-icon icon-mask icon-layout-dashboard" aria-hidden="true"></span><span>Início</span></button>
+        <p class="nav-caption" data-nav-area="discord">COMUNIDADE & AUTOMAÇÕES</p>
+        <button data-page="overview" data-area="discord" data-label="Dashboard do Discord" class="nav-item active" aria-current="page"><span class="nav-icon icon-mask icon-layout-dashboard" aria-hidden="true"></span><span>Visão geral</span></button>
+        <button data-page="services" data-area="discord" data-label="Serviços" class="nav-item"><span class="nav-icon icon-mask icon-activity" aria-hidden="true"></span><span>Serviços</span></button>
+        <button data-page="automations" data-area="discord" data-label="Automações" class="nav-item"><span class="nav-icon icon-mask icon-bot" aria-hidden="true"></span><span>Automações</span></button>
+        <button data-page="channels" data-area="discord" data-label="Canais" class="nav-item"><span class="nav-icon icon-mask icon-hash" aria-hidden="true"></span><span>Canais</span></button>
+        <button data-page="announcements" data-area="discord" data-label="Avisos" class="nav-item"><span class="nav-icon icon-mask icon-megaphone" aria-hidden="true"></span><span>Avisos</span></button>
+        <button data-page="assistant" data-area="discord" data-label="Assistente" class="nav-item"><span class="nav-icon icon-mask icon-sparkles" aria-hidden="true"></span><span>Assistente</span></button>
+        <button data-page="config" data-area="discord" data-label="Configuração" class="nav-item"><span class="nav-icon icon-mask icon-settings-2" aria-hidden="true"></span><span>Configuração</span></button>
+        <p class="nav-caption nav-caption-spaced" data-nav-area="store">VENDAS & OPERAÇÃO</p>
+        <button data-page="store" data-area="store" data-label="Dashboard da Loja" class="nav-item"><span class="nav-icon icon-mask icon-store" aria-hidden="true"></span><span>Loja</span></button>
+        <button data-page="payments" data-area="store" data-label="Pagamentos" class="nav-item"><span class="nav-icon icon-mask icon-credit-card" aria-hidden="true"></span><span>Pagamentos</span></button>
+        <button data-page="payouts" data-area="store" data-label="Repasses" class="nav-item"><span class="nav-icon icon-mask icon-wallet-cards" aria-hidden="true"></span><span>Repasses</span></button>
       </nav>
       <div class="sidebar-foot"><span class="live-dot" aria-hidden="true"></span><div><strong id="connection-label">Conectando…</strong><small>Estado do bot</small></div></div>
     </aside>
@@ -61,7 +61,7 @@
     <section class="workspace">
       <header class="topbar">
         <div class="page-heading"><p class="eyebrow" id="page-eyebrow">CENTRAL DE CONTROLE</p><h1 id="page-title">Visão geral</h1><p class="muted" id="server-name">Carregando servidor…</p></div>
-        <div class="top-actions"><button id="quick-open" class="search-trigger" type="button" aria-haspopup="dialog" aria-controls="quick-dialog"><span class="icon-mask icon-search" aria-hidden="true"></span><span>Buscar seção</span><kbd>Ctrl K</kbd></button><span id="last-updated" class="muted"></span><button id="refresh" class="secondary" type="button"><span class="icon-mask icon-refresh-cw" aria-hidden="true"></span> Atualizar</button><button id="logout" class="ghost" type="button"><span class="icon-mask icon-log-out" aria-hidden="true"></span> Sair</button></div>
+        <div class="top-actions"><button id="quick-open" class="search-trigger" type="button" aria-haspopup="dialog" aria-controls="quick-dialog"><span class="icon-mask icon-search" aria-hidden="true"></span><span>Buscar seção</span><kbd>Ctrl K</kbd></button><span id="last-updated" class="muted"></span><button id="area-switch" class="secondary" type="button"><span class="icon-mask icon-layout-dashboard" aria-hidden="true"></span> Trocar área</button><button id="refresh" class="secondary" type="button"><span class="icon-mask icon-refresh-cw" aria-hidden="true"></span> Atualizar</button><button id="logout" class="ghost" type="button"><span class="icon-mask icon-log-out" aria-hidden="true"></span> Sair</button></div>
       </header>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden><span id="notice-icon" class="icon-mask icon-circle-check" aria-hidden="true"></span><span id="notice-message"></span><button id="notice-close" type="button" aria-label="Fechar aviso"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
       <main id="content" class="content" aria-live="polite"></main>

@@ -1450,6 +1450,46 @@ dialog::backdrop { background: rgb(5 3 8 / 78%); backdrop-filter: blur(7px); }
 #app footer { border-color: #e1e2e8; color: #747b8a; }
 #app .notice { border-color: #caebdb; color: #187653; background: #f0fbf5; }
 #app .notice.error { border-color: #f1d2d5; color: #b83c4b; background: #fff6f6; }
+#app .area-home-intro { max-width: 760px; margin: 8px 0 24px; }
+#app .area-home-kicker { color: #4a46c5; font-size: 10px; font-weight: 800; letter-spacing: .11em; }
+#app .area-home-intro h2 { margin: 10px 0 8px; color: #202331; font-size: clamp(25px, 3vw, 34px); letter-spacing: -.045em; line-height: 1.12; }
+#app .area-home-intro p { max-width: 650px; margin: 0; color: #71798b; font-size: 13px; line-height: 1.65; }
+#app .area-home-intro p strong { color: #30384b; }
+#app .area-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+#app .area-choice-card {
+  display: flex;
+  min-height: 325px;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 24px;
+  border: 1px solid #e1e3eb;
+  border-radius: 15px;
+  color: #202331;
+  background: #fff;
+  box-shadow: 0 6px 20px rgb(27 33 54 / 4%);
+  text-align: left;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+#app .area-choice-card:hover { transform: translateY(-2px); border-color: #bbb7ff; box-shadow: 0 12px 30px rgb(30 22 140 / 9%); }
+#app .area-choice-card:focus-visible { outline: 3px solid rgb(33 16 238 / 28%); outline-offset: 3px; }
+#app .area-choice-overline { display: flex; align-items: center; gap: 8px; color: #5d6473; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+#app .area-choice-overline .icon-mask { width: 16px; height: 16px; color: #2110ee; }
+#app .area-choice-title { margin-top: 22px; font-size: 21px; font-weight: 780; letter-spacing: -.035em; }
+#app .area-choice-description { max-width: 470px; margin-top: 9px; color: #737b8d; font-size: 12px; line-height: 1.65; }
+#app .area-choice-features { display: grid; gap: 10px; margin: 22px 0 24px; color: #515a6c; font-size: 11px; }
+#app .area-choice-features > span { display: flex; align-items: center; gap: 8px; }
+#app .area-choice-features .icon-mask { width: 15px; height: 15px; color: #6977c9; }
+#app .area-choice-action { display: inline-flex; min-height: 40px; align-items: center; gap: 8px; margin-top: auto; padding: 0 14px; border-radius: 8px; color: #fff; background: #2110ee; font-size: 11px; font-weight: 750; }
+#app .area-choice-action .icon-mask { width: 14px; height: 14px; }
+#app .area-choice-store .area-choice-overline .icon-mask { color: #6e5bd0; }
+#app .area-choice-store .area-choice-action { color: #2110ee; background: #eeedff; }
+#app .area-home-foot { display: flex; align-items: center; gap: 9px; margin: 20px 0; color: #737b8d; font-size: 11px; }
+#app .area-home-foot .status-icon { margin: 0 0 0 2px; }
+#app[data-area="home"] .sidebar nav { gap: 6px; }
+#app[data-area="home"] .nav-caption,
+#app[data-area="home"] .nav-item[data-area] { display: none; }
+#app[data-area="home"] #area-switch { display: none; }
+#app[data-area="home"] .sidebar-foot { margin-top: auto; }
 @media (max-width: 920px) {
   #app .overview-reference-layout { grid-template-columns: minmax(0, 1.2fr) minmax(245px, .8fr); }
   #app .overview-sales-donut { width: 108px; height: 108px; flex-basis: 108px; }
@@ -1461,6 +1501,7 @@ dialog::backdrop { background: rgb(5 3 8 / 78%); backdrop-filter: blur(7px); }
   #app .overview-reference-layout { grid-template-columns: 1fr; }
   #app .overview-side-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #app .overview-products-card { grid-column: 1 / -1; }
+  #app .area-choice-card { min-height: 300px; padding: 20px; }
 }
 @media (max-width: 560px) {
   #app .topbar { align-items: flex-start; }
@@ -1470,4 +1511,10 @@ dialog::backdrop { background: rgb(5 3 8 / 78%); backdrop-filter: blur(7px); }
   #app .overview-products-card { grid-column: auto; }
   #app .overview-sales-chart { height: 142px; }
   #app .overview-status-strip { align-items: flex-start; flex-direction: column; }
+  #app .area-choice-grid { grid-template-columns: 1fr; gap: 12px; }
+  #app .area-choice-card { min-height: 0; padding: 19px; }
+  #app .area-choice-title { margin-top: 16px; font-size: 19px; }
+  #app .area-choice-features { gap: 9px; margin: 16px 0 18px; }
+  #app .area-home-intro { margin-bottom: 18px; }
+  #app .area-home-foot { align-items: flex-start; }
 }
