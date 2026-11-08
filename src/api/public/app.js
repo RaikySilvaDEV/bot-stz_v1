@@ -195,7 +195,7 @@ function renderAnnouncements() {
   const schedule = state.config;
   const scheduledAnnouncementCards = state.scheduledAnnouncements.length ? state.scheduledAnnouncements.map(item => {
     const target = schedule?.availableChannels?.find(channel => channel.id === item.channelId);
-    return `<article class="scheduled-announcement-row"><div class="scheduled-announcement-copy"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.content)}</p><small>#${escapeHtml(target?.name ?? 'canal não encontrado')} · ${item.times.map(escapeHtml).join(' · ')}</small></div><div class="scheduled-announcement-actions">${badge(item.enabled ? 'Ativo' : 'Pausado', item.enabled ? 'ok' : '')}<button class="tiny edit-scheduled-announcement" data-id="${escapeHtml(item.id)}" type="button">Editar</button><button class="tiny danger delete-scheduled-announcement" data-id="${escapeHtml(item.id)}" type="button">Remover</button></div></article>`;
+    return `<article class="scheduled-announcement-row"><div class="scheduled-announcement-copy"><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.content)}</p><small>#${escapeHtml(target?.name ?? 'canal não encontrado')} · ${item.times.map(escapeHtml).join(' · ')}</small></div><div class="scheduled-announcement-actions">${badge(item.enabled ? 'Ativo' : 'Pausado', item.enabled ? 'ok' : '')}<button class="tiny test-scheduled-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('send')} Enviar teste</button><button class="tiny edit-scheduled-announcement" data-id="${escapeHtml(item.id)}" type="button">Editar</button><button class="tiny danger delete-scheduled-announcement" data-id="${escapeHtml(item.id)}" type="button">Remover</button></div></article>`;
   }).join('') : '<p class="detail">Nenhum aviso programado. Cadastre um aviso e escolha o canal e os horários.</p>';
   const hoursText = schedule?.announcementHours?.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ') ?? 'carregando';
   byId('content').innerHTML = `<section class="announcement-intro"><div class="announcement-intro-icon">${icon('megaphone')}</div><div><h2>Avisos do servidor</h2><p>Gerencie o que aparece em <strong>${escapeHtml(channel?.name ? `#${channel.name}` : 'canal FiveM configurado')}</strong>. Ao salvar, o Discord é atualizado junto com o registro local.</p></div><button class="primary" id="new-announcement" type="button">${icon('plus')} Novo aviso</button></section>
@@ -208,6 +208,16 @@ function renderAnnouncements() {
   byId('new-announcement-empty')?.addEventListener('click', () => openAnnouncementDialog());
   byId('new-scheduled-announcement')?.addEventListener('click', () => openScheduledAnnouncementDialog());
   document.querySelectorAll('.edit-scheduled-announcement').forEach(button => button.addEventListener('click', () => openScheduledAnnouncementDialog(state.scheduledAnnouncements.find(item => item.id === button.dataset.id))));
+  document.querySelectorAll('.test-scheduled-announcement').forEach(button => button.addEventListener('click', async () => {
+    const item = state.scheduledAnnouncements.find(entry => entry.id === button.dataset.id);
+    if (!item) return;
+    button.disabled = true;
+    try {
+      const result = await request(`/api/painel/scheduled-announcements/${encodeURIComponent(item.id)}/test`, { method: 'POST', body: '{}' });
+      notice(`Teste enviado para #${result.channel.name}. Nenhum usuário foi mencionado.`);
+    } catch (error) { notice(error.message, true); }
+    finally { button.disabled = false; }
+  }));
   document.querySelectorAll('.delete-scheduled-announcement').forEach(button => button.addEventListener('click', async () => {
     const item = state.scheduledAnnouncements.find(entry => entry.id === button.dataset.id);
     if (!item || !window.confirm(`Remover o aviso programado “${item.title}”?`)) return;

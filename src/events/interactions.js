@@ -100,7 +100,7 @@ function criarAjuda() {
                 '`GET /api/painel/roles` · cargos disponíveis; `POST /api/painel/tickets/publish` · publicar painéis de suporte e compra.',
                 '`POST /api/painel/maintenance/announce` · publicar aviso de manutenção.',
                 '`GET/POST /api/painel/announcements` · `PUT/DELETE /api/painel/announcements/:id` · avisos FiveM.',
-                '`GET/POST/PUT /api/painel/scheduled-announcements` · `DELETE /api/painel/scheduled-announcements/:id` · avisos com canal, horários e imagem/GIF.',
+                '`GET/POST/PUT /api/painel/scheduled-announcements` · `DELETE /api/painel/scheduled-announcements/:id` · `POST /api/painel/scheduled-announcements/:id/test` · gerenciar e testar avisos por horário.',
                 '`GET /api/painel/commerce` · `PUT /api/painel/commerce/storefront` · `POST /api/painel/commerce/products` · `PUT/PATCH/DELETE /api/painel/commerce/products/:value`.',
                 '`POST /api/painel/commerce/coupons` · `DELETE /api/painel/commerce/coupons/:id` · cupons.',
                 '`PATCH /api/painel/commerce/orders/:id` · aprovar ou reentregar pedido.',

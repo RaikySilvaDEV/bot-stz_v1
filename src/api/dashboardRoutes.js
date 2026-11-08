@@ -299,6 +299,18 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             return responder(res, req.method === 'POST' ? 201 : 200, { announcement, announcements: getScheduledAnnouncements() }), true;
         }
         const scheduledAnnouncementMatch = pathname.match(/^\/api\/painel\/scheduled-announcements\/([a-f0-9-]{36})$/i);
+        const scheduledAnnouncementTestMatch = pathname.match(/^\/api\/painel\/scheduled-announcements\/([a-f0-9-]{36})\/test$/i);
+        if (scheduledAnnouncementTestMatch && req.method === 'POST') {
+            const item = getScheduledAnnouncements().find(announcement => announcement.id === scheduledAnnouncementTestMatch[1]);
+            if (!item) return responder(res, 404, { erro: 'Aviso programado não encontrado.' }), true;
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const channel = await guild?.channels.fetch(item.channelId).catch(() => null);
+            if (!channel?.isTextBased()) return responder(res, 400, { erro: 'O canal configurado não está disponível.' }), true;
+            const embeds = item.imageUrl ? [{ title: `🧪 Teste · ${item.title}`, image: { url: item.imageUrl } }] : [];
+            const message = await channel.send({ content: `🧪 **TESTE DO AVISO**\n${item.content}`, allowedMentions: { parse: [] }, embeds });
+            await logAction(guild, 'painel-web', 'Teste de aviso programado enviado', `${item.title}; canal #${channel.name}; mensagem ${message.id}`);
+            return responder(res, 200, { ok: true, channel: { id: channel.id, name: channel.name } }), true;
+        }
         if (scheduledAnnouncementMatch && req.method === 'DELETE') {
             const removed = removeScheduledAnnouncement(scheduledAnnouncementMatch[1]);
             if (!removed) return responder(res, 404, { erro: 'Aviso programado não encontrado.' }), true;
