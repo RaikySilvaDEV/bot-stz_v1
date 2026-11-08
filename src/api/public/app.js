@@ -397,6 +397,44 @@ function renderConfig() {
 function money(cents) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((Number(cents) || 0) / 100); }
 function fromMoney(value) { return Math.round(Number(String(value).replace(',', '.')) * 100); }
 
+function datetimeLocalValue(value) {
+  const date = value ? new Date(value) : new Date();
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function fillLegacyRoleOptions(selected = []) {
+  byId('legacy-role-ids').innerHTML = state.roles.map(role => `<option value="${escapeHtml(role.id)}" ${selected.includes(role.id) ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('');
+}
+
+function updateLegacyExpiryFromProduct() {
+  if (!byId('legacy-auto-expiration').checked) return;
+  const product = state.commerce?.products.find(item => item.value === byId('legacy-product').value);
+  const purchasedAt = new Date(byId('legacy-purchased-at').value);
+  if (!product || !Number.isFinite(purchasedAt.getTime())) return;
+  purchasedAt.setDate(purchasedAt.getDate() + Number(product.durationDays || 5));
+  byId('legacy-expires-at').value = datetimeLocalValue(purchasedAt);
+}
+
+function openLegacyAccessDialog(access = null) {
+  const form = byId('legacy-access-form');
+  form.reset();
+  form.dataset.id = access?.id ?? '';
+  byId('legacy-access-title').textContent = access ? 'Editar acesso antigo' : 'Registrar compra antiga';
+  byId('legacy-product').innerHTML = (state.commerce?.products ?? []).map(product => `<option value="${escapeHtml(product.value)}">${escapeHtml(product.name)}${product.active ? '' : ' · arquivado'}</option>`).join('');
+  byId('legacy-buyer-name').value = access?.buyerName ?? '';
+  byId('legacy-buyer-id').value = access?.buyerId ?? '';
+  byId('legacy-product').value = access?.productValue ?? state.commerce?.products[0]?.value ?? '';
+  byId('legacy-product-name').value = access?.productName ?? state.commerce?.products.find(item => item.value === byId('legacy-product').value)?.name ?? '';
+  byId('legacy-purchased-at').value = datetimeLocalValue(access?.purchasedAt);
+  byId('legacy-expires-at').value = datetimeLocalValue(access?.expiresAt ?? new Date(Date.now() + 5 * 86_400_000));
+  byId('legacy-notes').value = access?.notes ?? '';
+  byId('legacy-auto-expiration').checked = !access;
+  fillLegacyRoleOptions(access?.roleIds ?? state.commerce?.products.find(item => item.value === byId('legacy-product').value)?.roleIds ?? []);
+  if (!access) updateLegacyExpiryFromProduct();
+  byId('legacy-access-error').textContent = '';
+  byId('legacy-access-dialog').showModal();
+}
+
 function bindTableSearch(inputId, emptyId) {
   const input = byId(inputId);
   if (!input) return;
@@ -421,6 +459,10 @@ function renderStore() {
   const pending = data.orders.filter(order => ['pending', 'awaiting_manual_confirmation'].includes(order.status));
   const paid = data.orders.filter(order => order.paidAt);
   const revenue = paid.reduce((sum, order) => sum + order.amountCents, 0);
+  const legacy = data.legacyEntitlements ?? [];
+  const legacyActive = legacy.filter(access => access.computedStatus === 'active');
+  const legacyExpiring = legacyActive.filter(access => access.daysRemaining <= 1);
+  const legacyExpired = legacy.filter(access => access.computedStatus === 'expired');
   const currentStoreChannel = data.storefront.channelId || state.config?.channels?.purchaseStatus || '';
   byId('content').innerHTML = `
     <div class="grid">
@@ -447,6 +489,14 @@ function renderStore() {
         <button class="primary wide" type="submit">Salvar ${escapeHtml(product.name)}</button>
       </form>
     </article>`).join('')}</div></div></details>
+    <details class="store-section"><summary><span>Acessos de compras antigas</span><span class="badge">${legacyActive.length} ativos · ${legacyExpiring.length} vencem em 24h · ${legacyExpired.length} vencidos</span></summary><div class="store-section-content"><div class="section-head"><div><p class="detail">Cadastre clientes que compraram no bot anterior, confira os vencimentos e edite datas ou cargos. Esses registros não lançam uma nova venda nem concedem cargos ao cadastrar.</p></div><button id="add-legacy-access" class="primary">＋ Registrar acesso antigo</button></div><label class="table-search-label" for="legacy-search">Buscar cliente ou produto</label><input id="legacy-search" class="table-search" type="search" placeholder="Nome, ID ou produto…"><div class="table-wrap"><table><thead><tr><th>Cliente</th><th>Produto e cargos</th><th>Compra</th><th>Vencimento</th><th>Situação</th><th>Ações</th></tr></thead><tbody>${legacy.length ? legacy.map(access => {
+      const roleNames = (access.roleIds ?? []).map(id => state.roles.find(role => role.id === id)?.name ?? id);
+      const expirationText = new Date(access.expiresAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const purchaseText = new Date(access.purchasedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+      const statusText = access.computedStatus === 'revoked' ? 'Revogado' : access.computedStatus === 'expired' ? 'Vencido' : access.daysRemaining <= 1 ? 'Vence em até 24h' : access.daysRemaining <= 3 ? `Vence em ${access.daysRemaining} dias` : 'Ativo';
+      const statusTone = access.computedStatus === 'expired' || access.computedStatus === 'revoked' ? 'warn' : access.daysRemaining <= 3 ? 'warn' : 'ok';
+      return `<tr data-search-row><td><strong>${escapeHtml(access.buyerName)}</strong><div class="detail"><code>${escapeHtml(access.buyerId)}</code></div></td><td>${escapeHtml(access.productName)}<div class="detail">${escapeHtml(roleNames.join(', '))}</div></td><td>${escapeHtml(purchaseText)}</td><td>${escapeHtml(expirationText)}</td><td>${badge(statusText, statusTone)}</td><td><div class="table-actions"><button class="tiny edit-legacy-access" data-id="${escapeHtml(access.id)}">Editar</button><button class="tiny danger delete-legacy-access" data-id="${escapeHtml(access.id)}">Remover</button></div></td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="empty">Nenhum acesso antigo cadastrado. Registre as compras feitas no bot anterior para acompanhar os vencimentos.</td></tr>'}</tbody></table><p id="legacy-empty" class="empty" hidden>Nenhum registro corresponde a essa busca.</p></div></div></details>
     <details class="store-section"><summary><span>Cupons</span><span class="badge">${data.coupons.length} cadastrados</span></summary><div class="store-section-content"><div class="section-head"><p class="detail">Cadastrar cupom não ativa automaticamente a aplicação de descontos.</p><button id="add-coupon" class="primary">＋ Criar cupom</button></div><div class="table-wrap"><table><thead><tr><th>Código</th><th>Desconto</th><th>Usos</th><th>Validade</th><th>Ações</th></tr></thead><tbody>${data.coupons.length ? data.coupons.map(coupon => `<tr><td><strong>${escapeHtml(coupon.code)}</strong></td><td>${coupon.percent}%</td><td>${coupon.uses}/${coupon.maxUses}</td><td>${coupon.expiresAt ? escapeHtml(new Date(coupon.expiresAt).toLocaleString('pt-BR')) : 'Sem vencimento'}</td><td><button class="tiny danger remove-coupon" data-code="${escapeHtml(coupon.code)}">Remover</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">Nenhum cupom cadastrado.</td></tr>'}</tbody></table></div></div></details>
     <details class="store-section"><summary><span>Pedidos recentes</span><span class="badge">${data.orders.length} no histórico</span></summary><div class="store-section-content"><label class="table-search-label" for="order-search">Buscar pedido</label><input id="order-search" class="table-search" type="search" placeholder="ID, cliente ou produto…"><div class="table-wrap"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Produto</th><th>Valor</th><th>Estado</th><th>Ações</th></tr></thead><tbody>${data.orders.length ? data.orders.map(order => `<tr data-search-row><td><code>${escapeHtml(order.id.slice(0, 8))}</code><div class="detail">${escapeHtml(new Date(order.createdAt).toLocaleString('pt-BR'))}</div></td><td><code>${escapeHtml(order.buyerId)}</code></td><td>${escapeHtml(order.productName)}</td><td>${escapeHtml(money(order.amountCents))}</td><td>${badge(escapeHtml(order.status), order.paidAt ? 'ok' : 'warn')}${order.deliveryError ? `<p class="detail">${escapeHtml(order.deliveryError)}</p>` : ''}</td><td>${!order.paidAt ? `<button class="tiny success approve-order" data-id="${escapeHtml(order.id)}">Confirmar pagamento</button>` : order.status === 'paid_waiting_delivery' ? `<button class="tiny success deliver-order" data-id="${escapeHtml(order.id)}">Tentar entrega</button>` : '—'}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">Nenhum pedido registrado.</td></tr>'}</tbody></table><p id="order-empty" class="empty" hidden>Nenhum pedido corresponde a essa busca.</p></div></div></details>
     <details class="store-section"><summary><span>Avaliações recentes</span><span class="badge">${data.feedback.length} recebidas</span></summary><div class="store-section-content"><div class="grid two">${data.feedback.length ? data.feedback.slice(0, 10).map(item => `<article class="card"><h3>${'⭐'.repeat(item.rating)} ${item.rating}/5</h3><p class="detail">${escapeHtml(item.comment || 'Sem comentário')}</p><p class="detail">${escapeHtml(new Date(item.createdAt).toLocaleString('pt-BR'))}</p></article>`).join('') : '<article class="card"><p class="detail">Ainda não há avaliações.</p></article>'}</div></div></details>`;
@@ -504,6 +554,19 @@ function renderStore() {
     byId('product-dialog').showModal();
   });
   byId('add-coupon').addEventListener('click', () => { byId('coupon-error').textContent = ''; byId('coupon-dialog').showModal(); });
+  byId('add-legacy-access').addEventListener('click', () => openLegacyAccessDialog());
+  document.querySelectorAll('.edit-legacy-access').forEach(button => button.addEventListener('click', () => {
+    const access = legacy.find(item => item.id === button.dataset.id);
+    if (access) openLegacyAccessDialog(access);
+  }));
+  document.querySelectorAll('.delete-legacy-access').forEach(button => button.addEventListener('click', async () => {
+    const access = legacy.find(item => item.id === button.dataset.id);
+    if (!access || !window.confirm(`Remover o acompanhamento de vencimento de ${access.buyerName}? O cargo atual não será removido por essa ação.`)) return;
+    button.disabled = true;
+    try { state.commerce = await request(`/api/painel/commerce/legacy-entitlements/${encodeURIComponent(access.id)}`, { method: 'DELETE' }); renderStore(); notice('Acompanhamento removido; nenhum cargo foi alterado.'); }
+    catch (error) { notice(error.message, true); button.disabled = false; }
+  }));
+  bindTableSearch('legacy-search', 'legacy-empty');
   document.querySelectorAll('.remove-coupon').forEach(button => button.addEventListener('click', async () => {
     if (!window.confirm(`Remover o cupom ${button.dataset.code}?`)) return;
     try { state.commerce = await request(`/api/painel/commerce/coupons/${encodeURIComponent(button.dataset.code)}`, { method: 'DELETE' }); renderStore(); notice('Cupom removido.'); }
@@ -852,6 +915,42 @@ byId('close-dialog').addEventListener('click', () => byId('method-dialog').close
 byId('cancel-dialog').addEventListener('click', () => byId('method-dialog').close());
 byId('close-coupon').addEventListener('click', () => byId('coupon-dialog').close());
 byId('cancel-coupon').addEventListener('click', () => byId('coupon-dialog').close());
+byId('close-legacy-access').addEventListener('click', () => byId('legacy-access-dialog').close());
+byId('cancel-legacy-access').addEventListener('click', () => byId('legacy-access-dialog').close());
+byId('legacy-product').addEventListener('change', () => {
+  const product = state.commerce?.products.find(item => item.value === byId('legacy-product').value);
+  if (!product) return;
+  byId('legacy-product-name').value = product.name;
+  fillLegacyRoleOptions(product.roleIds ?? [product.roleId].filter(Boolean));
+  updateLegacyExpiryFromProduct();
+});
+byId('legacy-purchased-at').addEventListener('change', updateLegacyExpiryFromProduct);
+byId('legacy-auto-expiration').addEventListener('change', updateLegacyExpiryFromProduct);
+byId('legacy-expires-at').addEventListener('input', () => { byId('legacy-auto-expiration').checked = false; });
+byId('legacy-access-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const id = form.dataset.id;
+  const roleIds = [...byId('legacy-role-ids').selectedOptions].map(option => option.value);
+  const purchasedAt = byId('legacy-purchased-at').value;
+  const expiresAt = byId('legacy-expires-at').value;
+  const payload = {
+    buyerName: byId('legacy-buyer-name').value.trim(), buyerId: byId('legacy-buyer-id').value.trim(),
+    productValue: byId('legacy-product').value, productName: byId('legacy-product-name').value.trim(), roleIds,
+    purchasedAt: purchasedAt ? new Date(purchasedAt).toISOString() : '',
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : '', notes: byId('legacy-notes').value.trim()
+  };
+  const button = byId('save-legacy-access'); button.disabled = true; byId('legacy-access-error').textContent = '';
+  try {
+    const result = await request(id ? `/api/painel/commerce/legacy-entitlements/${encodeURIComponent(id)}` : '/api/painel/commerce/legacy-entitlements', {
+      method: id ? 'PUT' : 'POST', body: JSON.stringify(payload)
+    });
+    state.commerce = result.commerce;
+    byId('legacy-access-dialog').close(); renderStore();
+    notice(id ? 'Acesso e vencimento atualizados.' : 'Compra antiga cadastrada para acompanhamento.');
+  } catch (error) { byId('legacy-access-error').textContent = error.message; }
+  finally { button.disabled = false; }
+});
 byId('close-product').addEventListener('click', () => byId('product-dialog').close());
 byId('cancel-product').addEventListener('click', () => byId('product-dialog').close());
 byId('product-form').addEventListener('submit', async event => {

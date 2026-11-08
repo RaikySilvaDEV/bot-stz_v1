@@ -4,6 +4,9 @@ import { GUILD_ID } from '../config/constants.js';
 import { getCommerceConfig, releaseCoupon, releaseProductStock, saveLastCommerceReport } from '../repositories/commerceRepository.js';
 import { getOrders, updateOrder } from '../repositories/orderRepository.js';
 import { getCommerceProduct } from '../repositories/commerceRepository.js';
+import {
+    getLegacyEntitlements, markLegacyEntitlementExpired, markLegacyEntitlementReminder
+} from '../repositories/legacyEntitlementsRepository.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import {
     getMercadoPagoTestPayment, markMercadoPagoTestPaymentDelivered
@@ -213,6 +216,7 @@ export async function runCommerceAutomations() {
         const now = Date.now();
         const guild = client.guilds.cache.get(GUILD_ID);
         const orders = getOrders();
+        const legacyEntitlements = getLegacyEntitlements();
         for (const order of orders) {
             if (config.automations.automaticDelivery && order.status === 'delivered' && !order.deliveryRolesSyncedAt) {
                 await reconcileDeliveredOrderRoles(order, client.guilds.cache.get(order.guildId) ?? guild, now);
@@ -249,7 +253,9 @@ export async function runCommerceAutomations() {
                     for (const roleId of roleIds) {
                         const hasNewerAccess = orders.some(other => other.id !== order.id && other.guildId === order.guildId && other.buyerId === order.buyerId &&
                             ['paid', 'delivered', 'paid_waiting_delivery'].includes(other.status) && getOrderRoleIds(other).includes(roleId) &&
-                            other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt);
+                            other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt) ||
+                            legacyEntitlements.some(other => other.id !== order.id && other.guildId === order.guildId && other.buyerId === order.buyerId &&
+                                other.status === 'active' && other.roleIds?.includes(roleId) && Date.parse(other.expiresAt) > now);
                         if (!hasNewerAccess && member?.roles.cache.has(roleId)) {
                             await member.roles.remove(roleId, `Acesso expirado no pedido ${order.id}`);
                             const role = await targetGuild.roles.fetch(roleId).catch(() => null);
@@ -266,6 +272,38 @@ export async function runCommerceAutomations() {
                 const buyer = await client.users.fetch(order.buyerId).catch(() => null);
                 await buyer?.send(`⏰ Seu acesso **${order.productName}** expira em até 24 horas. Se quiser continuar, você pode renovar pela loja.`).catch(() => {});
                 updateOrder(order.id, { expirationReminderAt: new Date().toISOString() });
+            }
+        }
+        if (config.automations.roleExpiration) {
+            for (const access of legacyEntitlements) {
+                const expiresAt = Date.parse(access.expiresAt);
+                if (access.status !== 'active' || !Number.isFinite(expiresAt)) continue;
+                if (!access.expirationReminderAt && expiresAt > now && expiresAt - now <= DAY) {
+                    const buyer = await client.users.fetch(access.buyerId).catch(() => null);
+                    await buyer?.send(`⏰ Seu acesso legado **${access.productName}** expira em até 24 horas (${new Date(access.expiresAt).toLocaleString('pt-BR')}). Para renovar, fale com a equipe ou use a loja.`).catch(() => {});
+                    markLegacyEntitlementReminder(access.id);
+                }
+                if (expiresAt > now) continue;
+
+                try {
+                    const targetGuild = client.guilds.cache.get(access.guildId) ?? guild;
+                    if (!targetGuild) throw new Error(`Servidor ${access.guildId} não está disponível para verificar a expiração.`);
+                    const member = await targetGuild.members.fetch(access.buyerId);
+                    for (const roleId of access.roleIds ?? []) {
+                        const hasOtherActiveAccess = orders.some(other => other.guildId === access.guildId && other.buyerId === access.buyerId &&
+                            ['paid', 'delivered', 'paid_waiting_delivery'].includes(other.status) && getOrderRoleIds(other).includes(roleId) &&
+                            other.entitlementExpiresAt && Date.parse(other.entitlementExpiresAt) > now && !other.roleExpiredAt) ||
+                            legacyEntitlements.some(other => other.id !== access.id && other.guildId === access.guildId && other.buyerId === access.buyerId &&
+                                other.status === 'active' && other.roleIds?.includes(roleId) && Date.parse(other.expiresAt) > now);
+                        if (hasOtherActiveAccess || !member.roles.cache.has(roleId)) continue;
+                        await member.roles.remove(roleId, `Acesso legado expirado (${access.id})`);
+                        const role = await targetGuild.roles.fetch(roleId).catch(() => null);
+                        if (role) await logRoleChange(targetGuild, { member, role, action: 'removal', orderId: `Legado ${access.id}`, paidAt: access.purchasedAt, expiresAt: access.expiresAt });
+                    }
+                    markLegacyEntitlementExpired(access.id);
+                } catch (error) {
+                    console.error(`[loja:expiracao-legado:${access.id}] Não foi possível reconciliar o acesso:`, error.message);
+                }
             }
         }
         const dateKey = localDateParts(new Date(now), getSettings().timezone);

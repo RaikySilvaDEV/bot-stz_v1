@@ -20,6 +20,9 @@ import {
 } from '../repositories/commerceRepository.js';
 import { getProductPriceCents, removeProductPrice, setProductPriceCents } from '../repositories/productCatalogRepository.js';
 import { getOrders, getOrderById } from '../repositories/orderRepository.js';
+import {
+    createLegacyEntitlement, getLegacyEntitlements, removeLegacyEntitlement, updateLegacyEntitlement
+} from '../repositories/legacyEntitlementsRepository.js';
 import { getFeedback } from '../repositories/feedbackRepository.js';
 import { handlePaidOrder } from '../features/commerceAutomations.js';
 import { publicarVitrineLoja } from '../features/commerce.js';
@@ -126,6 +129,11 @@ function commerceSnapshot() {
         }),
         coupons: config.coupons,
         orders: getOrders().slice(-100).reverse().map(safeOrder),
+        legacyEntitlements: getLegacyEntitlements().slice().reverse().map(access => ({
+            ...access,
+            daysRemaining: Math.ceil((Date.parse(access.expiresAt) - Date.now()) / (24 * 60 * 60 * 1000)),
+            computedStatus: access.status === 'revoked' ? 'revoked' : Date.parse(access.expiresAt) <= Date.now() ? 'expired' : 'active'
+        })),
         feedback: getFeedback().slice(-50).reverse(),
         storefront: { channelId: config.storeChannelId, messageId: config.storeMessageId }
     };
@@ -279,6 +287,33 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             saveStorefrontReference(channel.id, null);
             const result = await publicarVitrineLoja(guild);
             return responder(res, 200, { commerce: commerceSnapshot(), channel: { id: result.channel.id, name: result.channel.name }, messageId: result.message.id }), true;
+        }
+        if (pathname === '/api/painel/commerce/legacy-entitlements' && req.method === 'POST') {
+            const body = await readJson(req);
+            const roleIds = Array.isArray(body?.roleIds) ? body.roleIds : [];
+            if (roleIds.length < 1 || roleIds.length > 5) return responder(res, 400, { erro: 'Selecione de 1 a 5 cargos que este acesso libera.' }), true;
+            for (const roleId of roleIds) if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Um dos cargos é inválido, gerenciado ou está acima do cargo do bot.' }), true;
+            const access = createLegacyEntitlement({ ...body, roleIds, guildId: GUILD_ID });
+            await logAction(client.guilds.cache.get(GUILD_ID), 'painel-web', 'Acesso de compra antiga cadastrado', `Cliente ${access.buyerName} (${access.buyerId}); produto ${access.productName}; vence ${access.expiresAt}`);
+            return responder(res, 201, { access, commerce: commerceSnapshot() }), true;
+        }
+        const legacyEntitlementMatch = pathname.match(/^\/api\/painel\/commerce\/legacy-entitlements\/([a-f0-9-]+)$/i);
+        if (legacyEntitlementMatch && req.method === 'PUT') {
+            const id = legacyEntitlementMatch[1];
+            const body = await readJson(req);
+            const roleIds = Array.isArray(body?.roleIds) ? body.roleIds : [];
+            if (roleIds.length < 1 || roleIds.length > 5) return responder(res, 400, { erro: 'Selecione de 1 a 5 cargos que este acesso libera.' }), true;
+            for (const roleId of roleIds) if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Um dos cargos é inválido, gerenciado ou está acima do cargo do bot.' }), true;
+            const access = updateLegacyEntitlement(id, { ...body, roleIds });
+            if (!access) return responder(res, 404, { erro: 'Acesso antigo não encontrado.' }), true;
+            await logAction(client.guilds.cache.get(GUILD_ID), 'painel-web', 'Acesso de compra antiga atualizado', `Cliente ${access.buyerName} (${access.buyerId}); produto ${access.productName}; vence ${access.expiresAt}`);
+            return responder(res, 200, { access, commerce: commerceSnapshot() }), true;
+        }
+        if (legacyEntitlementMatch && req.method === 'DELETE') {
+            const removed = removeLegacyEntitlement(legacyEntitlementMatch[1]);
+            if (!removed) return responder(res, 404, { erro: 'Acesso antigo não encontrado.' }), true;
+            await logAction(client.guilds.cache.get(GUILD_ID), 'painel-web', 'Acesso de compra antiga removido', `Registro ${legacyEntitlementMatch[1]}`);
+            return responder(res, 200, commerceSnapshot()), true;
         }
         if (pathname === '/api/painel/config' && req.method === 'GET') {
             const guild = client.guilds.cache.get(GUILD_ID);

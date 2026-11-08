@@ -123,6 +123,21 @@
     </form>
   </dialog>
 
+  <dialog id="legacy-access-dialog" aria-labelledby="legacy-access-title">
+    <form id="legacy-access-form" method="dialog" class="dialog-card">
+      <div class="dialog-head"><div><p class="eyebrow">ACESSO DE COMPRA ANTIGA</p><h2 id="legacy-access-title">Registrar compra antiga</h2></div><button type="button" id="close-legacy-access" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
+      <div class="form-grid two"><div><label for="legacy-buyer-name">Nome do cliente</label><input id="legacy-buyer-name" maxlength="100" required></div><div><label for="legacy-buyer-id">ID do usuário no Discord</label><input id="legacy-buyer-id" inputmode="numeric" pattern="[0-9]{17,20}" maxlength="20" placeholder="Ex.: 123456789012345678" required></div></div>
+      <div class="form-grid two"><div><label for="legacy-product">Produto do catálogo</label><select id="legacy-product" required></select></div><div><label for="legacy-product-name">Nome do produto na compra antiga</label><input id="legacy-product-name" maxlength="100" required></div></div>
+      <label for="legacy-role-ids">Cargos que o cliente recebeu</label><select id="legacy-role-ids" multiple size="5" required aria-describedby="legacy-role-help"></select><p class="detail" id="legacy-role-help">Selecione todos os cargos antigos que devem ser removidos no vencimento. Use Ctrl para selecionar mais de um.</p>
+      <div class="form-grid two"><div><label for="legacy-purchased-at">Data e hora da compra</label><input id="legacy-purchased-at" type="datetime-local" required></div><div><label for="legacy-expires-at">Data e hora do vencimento</label><input id="legacy-expires-at" type="datetime-local" required></div></div>
+      <label class="check-option"><input id="legacy-auto-expiration" type="checkbox" checked> Calcular vencimento pela validade do produto selecionado</label>
+      <label for="legacy-notes">Observações (opcional)</label><textarea id="legacy-notes" maxlength="500" rows="2" placeholder="Ex.: compra confirmada no bot anterior"></textarea>
+      <p class="detail">O cadastro apenas acompanha uma compra confirmada no bot antigo. Ele não registra pagamento nem adiciona cargos. No vencimento, a rotina removerá os cargos cadastrados, preservando-os se outra compra ativa também os conceder.</p>
+      <p id="legacy-access-error" class="error" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" id="cancel-legacy-access" class="secondary">Cancelar</button><button id="save-legacy-access" class="primary" type="submit">Salvar acesso</button></div>
+    </form>
+  </dialog>
+
   <dialog id="announcement-dialog" aria-labelledby="announcement-dialog-title">
     <form id="announcement-form" method="dialog" class="dialog-card">
       <div class="dialog-head"><div><p class="eyebrow">AVISOS DO SERVIDOR</p><h2 id="announcement-dialog-title">Novo aviso</h2></div><button type="button" id="close-announcement" class="icon-button" aria-label="Fechar"><span class="icon-mask icon-x" aria-hidden="true"></span></button></div>
