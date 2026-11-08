@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readJsonData, writeJsonData } from '../data/jsonStore.js';
 
 const FILE = 'partner-payouts.json';
-const DEFAULT = { shareBps: 0, recipient: null, payouts: [], notifications: [] };
+const DEFAULT = { shareBps: 5000, recipient: null, payouts: [], notifications: [] };
 
 export function getPartnerPayoutState() {
     const state = readJsonData(FILE, DEFAULT);

@@ -4,7 +4,7 @@ import {
     ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder,
     MessageFlags, PermissionsBitField, StringSelectMenuBuilder
 } from 'discord.js';
-import { ai, client } from '../client.js';
+import { client } from '../client.js';
 import { BOT_ADMIN_ROLE_IDS, BOT_DEVELOPER_IDS, GUILD_ID, PATHS } from '../config/constants.js';
 import { getSettings, updateSettings } from '../repositories/settingsRepository.js';
 import { getDashboardReference, saveDashboardReference } from '../repositories/dashboardRepository.js';
@@ -17,25 +17,28 @@ import { isServerManager } from '../services/authorization.js';
 import { COMMERCE_AUTOMATION_LABELS, getCommerceConfig, getCommerceProducts, setCommerceAutomation } from '../repositories/commerceRepository.js';
 import { mercadoPagoConfigReady } from '../services/mercadoPago.js';
 import { getPartnerPayoutDashboard } from '../services/partnerPayouts.js';
+import { getAssistantStatus } from '../services/assistantProvider.js';
+import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
 
 const PAGES = [
     ['geral', 'Visão geral'], ['automacoes', 'Automações'],
     ['canais', 'Canais e recursos'], ['pagamentos', 'Pagamentos']
 ];
 const AUTOMATION_LABELS = {
-    announcements: 'Avisos agendados', wallpapers: 'Wallpapers diários',
-    stock: 'Armazéns', aiResponses: 'Atendimento por IA'
+    announcements: 'Avisos agendados', wallpapers: 'Wallpapers às 12:00',
+    stock: 'Armazéns diários às 12:30', aiResponses: 'Atendimento por IA'
 };
 const ALL_AUTOMATION_LABELS = {
     ...AUTOMATION_LABELS,
     ...Object.fromEntries(Object.entries(COMMERCE_AUTOMATION_LABELS).map(([key, label]) => [`store_${key}`, `Loja · ${label}`]))
 };
 const CHANNEL_LABELS = {
-    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets',
-    ticketPanel: 'Painel de tickets', verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers',
+    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets de suporte',
+    purchaseCategory: 'Categoria de tickets de compra', ticketPanel: 'Painel de tickets de suporte', purchasePanel: 'Painel de compras',
+    verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers',
     suggestions: 'Sugestões', feedback: 'Avaliações de clientes', purchaseStatus: 'Status de compras', supportNotices: 'Avisos de suporte',
     roleNews: 'Novidades de cargos', precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ',
-    stockBoosters: 'Armazém Boosters', audit: 'Auditoria'
+    stockBoosters: 'Armazém Boosters', roleLogs: 'Registros de cargos', salesLogs: 'Registros de vendas', audit: 'Auditoria'
 };
 
 function uptimeText() {
@@ -59,7 +62,7 @@ function getAutomationHealth(status) {
         announcements: { ready: announcementsReady, detail: announcementsReady ? 'Canais de destino encontrados.' : 'Um ou mais canais de destino não foram encontrados.' },
         wallpapers: { ready: wallpaperReady, detail: wallpaperReady ? `Canal pronto e arquivo do dia ${status.wallpaperState.diaAtual} encontrado.` : `Canal ou arquivo do dia ${status.wallpaperState.diaAtual} ausente.` },
         stock: { ready: stockReady, detail: stockReady ? `Arquivos dos itens CTZ #${status.stockState.ctz.indexAtual} e Boosters #${status.stockState.boosters.indexAtual} encontrados.` : 'Canal ou arquivos do próximo item ausentes.' },
-        aiResponses: { ready: Boolean(ai) && status.channelReady('supportCategory'), detail: !ai ? 'GEMINI_API_KEY ausente.' : status.channelReady('supportCategory') ? 'Chave Gemini e categoria de suporte configuradas.' : 'Categoria de suporte ausente.' }
+        aiResponses: { ready: Boolean(status.assistantStatus?.ready) && status.channelReady('supportCategory'), detail: !status.assistantStatus?.ready ? status.assistantStatus?.detail ?? 'Ollama local não configurado.' : status.channelReady('supportCategory') ? status.assistantStatus.detail : 'Categoria de suporte ausente.' }
     };
     const commerce = status.commerceConfig;
     const partnerPayoutSettings = getPartnerPayoutDashboard().settings;
@@ -92,7 +95,7 @@ async function collectStatus(guild) {
     const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
     const channelStatus = Object.entries(settings.channels).map(([key, id]) => {
         const channel = id ? channels.get(id) : null;
-        const validType = key === 'supportCategory'
+        const validType = ['supportCategory', 'purchaseCategory'].includes(key)
             ? channel?.type === ChannelType.GuildCategory
             : key === 'audit' ? Boolean(channel?.isTextBased()) : Boolean(channel?.isTextBased());
         return { key, id, channel, ready: Boolean(channel && validType) };
@@ -102,17 +105,18 @@ async function collectStatus(guild) {
     const ticketPermissionReady = Boolean(category && botMember && category.permissionsFor(botMember)?.has(PermissionsBitField.Flags.ManageChannels));
     const wallpaperState = getWallpaperState();
     const stockState = getStockState();
-    const currentWallpaperExists = fs.existsSync(`${PATHS.wallpapers}/${wallpaperState.diaAtual}.png`);
+    const currentWallpaperExists = Boolean(getWallpaperPath(wallpaperState.diaAtual));
     const stockCtzCount = countAssets(PATHS.ctz, stockState.ctz.indexAtual);
     const stockBoostersCount = countAssets(PATHS.boosters, stockState.boosters.indexAtual);
     const paymentConfig = getPaymentConfig();
     const commerceConfig = getCommerceConfig();
+    const assistantStatus = await getAssistantStatus();
     const api = getApiStatus();
     const isReady = client.isReady();
     const channelReady = key => channelStatus.find(item => item.key === key)?.ready ?? false;
     return {
         settings, channels, channelStatus, ticketPermissionReady, wallpaperState, currentWallpaperExists,
-        stockState, stockCtzCount, stockBoostersCount, paymentConfig, commerceConfig, api, isReady, channelReady
+        stockState, stockCtzCount, stockBoostersCount, paymentConfig, commerceConfig, assistantStatus, api, isReady, channelReady
     };
 }
 
@@ -147,7 +151,7 @@ export async function getDashboardDetails() {
         services: {
             discord: { active: status.isReady, operational: status.isReady, detail: status.isReady ? 'Conectado ao Discord.' : 'Cliente Discord desconectado.' },
             api: { active: status.api.running, operational: status.api.running, port: status.api.port, detail: status.api.running ? `Escutando na porta ${status.api.port}.` : 'Servidor da API não está escutando.' },
-            gemini: { active: Boolean(status.settings.automations.aiResponses), configured: Boolean(ai), operational: Boolean(status.settings.automations.aiResponses && ai), detail: !ai ? 'GEMINI_API_KEY ausente.' : status.settings.automations.aiResponses ? 'Atendimento por IA habilitado.' : 'Atendimento por IA pausado.' },
+            aiAssistant: { active: Boolean(status.settings.automations.aiResponses), configured: status.assistantStatus.available, ready: status.assistantStatus.ready, operational: Boolean(status.settings.automations.aiResponses && status.assistantStatus.ready && status.channelReady('supportCategory')), model: status.assistantStatus.model, detail: !status.settings.automations.aiResponses ? 'Autoatendimento pausado.' : status.assistantStatus.ready ? `Ollama local pronto com ${status.assistantStatus.model}.` : status.assistantStatus.detail },
             ticketCreation: { active: true, operational: status.ticketPermissionReady, detail: status.ticketPermissionReady ? 'Categoria e permissão para criar canais disponíveis.' : 'Categoria ausente ou permissão ManageChannels indisponível.' }
         },
         automations, channels,
@@ -181,7 +185,7 @@ function buildEmbed(page, status, guild) {
             { name: 'Latência', value: client.ws.ping >= 0 ? `${client.ws.ping} ms` : 'Aguardando gateway', inline: true },
             { name: 'Tempo ligado', value: uptimeText(), inline: true },
             { name: 'API Postman', value: status.api.running ? `🟢 Operante · porta ${status.api.port}` : '⚪ Inativa', inline: true },
-            { name: 'Atendimento por IA', value: stateLabel(settings.automations.aiResponses, Boolean(ai)), inline: true },
+            { name: 'Atendimento por IA', value: stateLabel(settings.automations.aiResponses, Boolean(status.assistantStatus.ready && status.channelReady('supportCategory'))), inline: true },
             { name: 'Memória do processo', value: `${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB`, inline: true },
             { name: 'Painel de tickets', value: stateLabel(true, status.ticketPermissionReady), inline: true },
             { name: 'Métodos de pagamento', value: `${status.paymentConfig.methods.filter(item => item.active).length} ativos · ${status.paymentConfig.methods.filter(item => !item.active).length} inativos`, inline: true }

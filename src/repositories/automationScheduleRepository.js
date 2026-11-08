@@ -34,3 +34,10 @@ export function markWallpaperDateCompleted(dateKey) {
     state.wallpaperDate = dateKey;
     writeJsonData(FILE, state);
 }
+
+export function clearWallpaperDateCompleted(dateKey) {
+    const state = readState();
+    if (state.wallpaperDate !== dateKey) return;
+    state.wallpaperDate = null;
+    writeJsonData(FILE, state);
+}

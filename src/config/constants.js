@@ -28,6 +28,7 @@ export const CANAL_WALLPAPERS_ID = "1552150374746423418";
 export const CANAL_SUGESTAO_ID = "1549443615984586865";
 export const CANAL_AVALIACOES_CLIENTES_ID = "1549410077608378418";
 export const CANAL_ANUNCIO_FIVE_M_ID = "1567754498837839924";
+export const CANAL_ARMADILHA_ID = "1546921143158571059";
 export const CANAL_PARCERIA_PUBLICA = "1567698999446732910";
 export const CANAL_LOGS_ADMIN_ID = "1546490624469901442";
 export const CANAL_AVISOS_VENDAS_PUBLICA = "1547225755526758460";
@@ -41,5 +42,7 @@ export const PATHS = {
     ctz: path.join(__dirname, 'ModArmazem', 'ctz'),
     boosters: path.join(__dirname, 'ModArmazem', 'ctz boosters'),
     wallpapers: path.join(__dirname, 'Wallpapers'),
-    storeImages: path.join(__dirname, 'assets', 'store')
+    storeImages: path.join(__dirname, 'assets', 'store'),
+    welcomeImage: path.join(__dirname, 'assets', 'welcome', 'Bem-Vindo.png'),
+    greetingImages: path.join(__dirname, 'assets', 'greetings')
 };

@@ -1,7 +1,7 @@
 import { AttachmentBuilder, ChannelType, MessageFlags } from 'discord.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ai, client } from '../client.js';
+import { client } from '../client.js';
 import { GUILD_ID, PATHS } from '../config/constants.js';
 import { isServerManager } from '../services/authorization.js';
 import { getAuditEntries } from '../repositories/auditRepository.js';
@@ -19,14 +19,18 @@ import { getCommerceConfig } from '../repositories/commerceRepository.js';
 import { getOrders } from '../repositories/orderRepository.js';
 import { getFeedback } from '../repositories/feedbackRepository.js';
 import { getProductPrices } from '../repositories/productCatalogRepository.js';
+import { getAssistantStatus } from '../services/assistantProvider.js';
+import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
 
 const CHANNEL_LABELS = {
-    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets', ticketPanel: 'Painel de tickets',
+    partnerships: 'Parcerias', fivemAnnouncements: 'Anúncios FiveM', supportCategory: 'Categoria de tickets de suporte',
+    purchaseCategory: 'Categoria de tickets de compra', ticketPanel: 'Painel de tickets de suporte', purchasePanel: 'Painel de compras',
     verification: 'Verificação', welcome: 'Boas-vindas', wallpapers: 'Wallpapers', suggestions: 'Sugestões',
     purchaseStatus: 'Status de compras', supportNotices: 'Avisos de suporte', roleNews: 'Novidades de cargos',
-    precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ', stockBoosters: 'Armazém CTZ Boosters', audit: 'Logs administrativos'
+    precisionInfo: 'Informações PrecisionFix', stockCtz: 'Armazém CTZ', stockBoosters: 'Armazém CTZ Boosters',
+    roleLogs: 'Registros de cargos', salesLogs: 'Registros de vendas', audit: 'Logs administrativos'
 };
-const AUTOMATION_LABELS = { announcements: 'Avisos agendados', wallpapers: 'Wallpapers diários', stock: 'Armazéns a cada 5 horas', aiResponses: 'Atendimento automático por IA' };
+const AUTOMATION_LABELS = { announcements: 'Avisos agendados', wallpapers: 'Wallpapers às 12:00', stock: 'Armazéns diários às 12:30', aiResponses: 'Atendimento automático por IA' };
 const CHANNEL_CHOICES = Object.entries(CHANNEL_LABELS).map(([value, name]) => ({ name, value }));
 const AUTOMATION_CHOICES = Object.entries(AUTOMATION_LABELS).map(([value, name]) => ({ name, value }));
 
@@ -61,6 +65,7 @@ export async function tratarInteracaoAdministracao(interaction) {
 
     if (interaction.commandName === 'status') {
         const settings = getSettings();
+        const assistantStatus = await getAssistantStatus();
         const guild = client.guilds.cache.get(GUILD_ID);
         const channels = guild ? await guild.channels.fetch().catch(() => null) : null;
         const missingChannels = Object.entries(settings.channels)
@@ -83,9 +88,9 @@ export async function tratarInteracaoAdministracao(interaction) {
             `Tempo ligado: ${hours}h ${minutes}min`,
             `Parcerias cadastradas: ${getPartnershipCount()}`,
             `Anúncios FiveM cadastrados: ${listarAnunciosFiveM().length}`,
-            `Gemini: ${ai ? (settings.automations.aiResponses ? 'atendimento ligado' : 'atendimento pausado') : 'GEMINI_API_KEY ausente'}`,
+            `IA local: ${settings.automations.aiResponses ? assistantStatus.detail : 'autoatendimento pausado'}`,
             `API local: ${apiStatus.running ? `ativa na porta ${apiStatus.port}` : 'inativa (configure API_KEY para ativar)'}`,
-            `Wallpaper atual: dia ${wallpaperState.diaAtual}/105 (${fs.existsSync(path.join(PATHS.wallpapers, `${wallpaperState.diaAtual}.png`)) ? 'arquivo pronto' : 'arquivo ausente'})`,
+            `Wallpaper atual: dia ${wallpaperState.diaAtual}/105 (${getWallpaperPath(wallpaperState.diaAtual) ? 'arquivo pronto' : 'arquivo ausente'})`,
             `Armazém CTZ: item #${stockState.ctz.indexAtual}, ${contarArquivosDoItem(PATHS.ctz, stockState.ctz.indexAtual)} arquivo(s), ${tempoRestante(stockState.ctz.ultimoTimestampEnvio)}`,
             `Armazém Boosters: item #${stockState.boosters.indexAtual}, ${contarArquivosDoItem(PATHS.boosters, stockState.boosters.indexAtual)} arquivo(s), ${tempoRestante(stockState.boosters.ultimoTimestampEnvio)}`,
             `Memória: ${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB`,
@@ -142,8 +147,8 @@ export async function tratarInteracaoAdministracao(interaction) {
     } else if (subcommand === 'canal') {
         const key = interaction.options.getString('tipo');
         const channel = interaction.options.getChannel('canal');
-        if (key === 'supportCategory' ? channel.type !== ChannelType.GuildCategory : !channel.isTextBased()) {
-            await interaction.reply({ content: key === 'supportCategory' ? 'Escolha uma categoria do servidor.' : 'Escolha um canal de texto.' , flags: MessageFlags.Ephemeral });
+        if (['supportCategory', 'purchaseCategory'].includes(key) ? channel.type !== ChannelType.GuildCategory : !channel.isTextBased()) {
+            await interaction.reply({ content: ['supportCategory', 'purchaseCategory'].includes(key) ? 'Escolha uma categoria do servidor.' : 'Escolha um canal de texto.' , flags: MessageFlags.Ephemeral });
             return true;
         }
         const settings = updateSettings({ channels: { [key]: channel.id } });

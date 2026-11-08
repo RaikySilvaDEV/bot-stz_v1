@@ -1,13 +1,13 @@
 const byId = id => document.getElementById(id);
 const pageFromStorage = localStorage.getItem('bot-dashboard-page');
 const validPages = new Set(['overview', 'services', 'automations', 'channels', 'announcements', 'config', 'store', 'payments', 'payouts', 'assistant']);
-const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], assistantMessages: [], roles: [], config: null };
+const state = { data: null, page: validPages.has(pageFromStorage) ? pageFromStorage : 'overview', methods: [], mercadoPago: null, commerce: null, payouts: null, announcements: [], wallpapers: { files: [], currentDay: 1, nextDay: 1 }, assistantMessages: [], roles: [], config: null, managedChannels: [], pageError: '' };
 const pageTitles = { overview: 'Visão geral', services: 'Serviços', automations: 'Automações', channels: 'Canais', announcements: 'Avisos', config: 'Configuração', store: 'Loja', payments: 'Pagamentos', payouts: 'Repasses', assistant: 'Assistente' };
 const pageDescriptions = {
   overview: 'Acompanhe o estado do bot e encontre rapidamente o que precisa de atenção.',
   services: 'Veja se as conexões, integrações e recursos locais estão prontos.',
   automations: 'Ative ou pause cada rotina e confira suas dependências.',
-  channels: 'Confira os canais definidos e as permissões atuais do bot.',
+  channels: 'Crie, renomeie, mova e organize canais do servidor; confira também as permissões do bot.',
   announcements: 'Crie, publique, edite e remova avisos no canal FiveM.',
   config: 'Ajuste os canais, horários, fuso e menções automáticas.',
   store: 'Organize a vitrine, os produtos, os pedidos e as avaliações.',
@@ -74,28 +74,67 @@ function renderOverview(data) {
   const ping = Number.isFinite(data.bot.pingMs) && data.bot.pingMs >= 0 ? `${Math.round(data.bot.pingMs)} ms` : 'Aguardando medida';
   const allHealthy = healthy === services.length && problematicAutomations.length === 0 && problematicServices.length === 0;
   const orders = state.commerce?.orders ?? [];
+  const paidOrders = orders.filter(order => order.paidAt);
+  const todayKey = new Date().toLocaleDateString('sv-SE');
+  const todayOrders = paidOrders.filter(order => new Date(order.paidAt).toLocaleDateString('sv-SE') === todayKey);
+  const todayRevenue = todayOrders.reduce((sum, order) => sum + (order.amountCents || 0), 0);
+  const totalRevenue = paidOrders.reduce((sum, order) => sum + (order.amountCents || 0), 0);
+  const pendingOrders = orders.filter(order => !order.paidAt && !['cancelled', 'canceled', 'expired', 'failed'].includes(String(order.status).toLowerCase()));
+  const attentionItems = [...problematicServices.map(([key, item]) => ({ title: serviceName(key), detail: item.detail, target: 'services' })), ...problematicAutomations.map(item => ({ title: item.label, detail: item.detail, target: 'automations' }))];
+  const latestOrders = paidOrders.slice(0, 5);
+  const chartColors = ['#1800ed', '#111827', '#737b8b', '#aab1bd', '#4f46e5'];
+  const productTotals = paidOrders.reduce((totals, order) => {
+    const name = order.productName || 'Produto';
+    totals.set(name, (totals.get(name) || 0) + (order.amountCents || 0));
+    return totals;
+  }, new Map());
+  const productGroups = [...productTotals].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const productGrandTotal = productGroups.reduce((sum, [, amount]) => sum + amount, 0);
+  let productOffset = 0;
+  const productGradient = productGroups.map(([name, amount], index) => {
+    const start = productOffset;
+    productOffset += productGrandTotal ? amount / productGrandTotal * 100 : 0;
+    return `${chartColors[index]} ${start}% ${productOffset}%`;
+  }).join(', ');
+  const paymentTotals = paidOrders.reduce((totals, order) => {
+    const name = order.paymentMethodName || (order.provider === 'mercado_pago' ? 'Mercado Pago' : 'Manual');
+    totals.set(name, (totals.get(name) || 0) + 1);
+    return totals;
+  }, new Map());
+  const paymentGroups = [...paymentTotals].sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const paymentMax = Math.max(1, ...paymentGroups.map(([, count]) => count));
   byId('content').innerHTML = `
-    <section class="overview-banner"><div><p class="eyebrow">RESUMO DO SERVIDOR</p><h2>${allHealthy ? 'Seu bot está em ordem' : 'Confira os itens que precisam de atenção'}</h2><p>${escapeHtml(data.server.name)} · ${Number(data.server.members).toLocaleString('pt-BR')} membros · atualizado às ${escapeHtml(new Date(data.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))}</p></div><div class="overview-actions"><button class="secondary jump-page" data-target="services" type="button">Ver serviços</button><button class="primary jump-page" data-target="store" type="button">Abrir loja</button></div></section>
+    <section class="overview-banner"><div><p class="eyebrow">PAINEL DO SERVIDOR</p><h2>${allHealthy ? 'Tudo pronto para atender' : 'Há itens que precisam da sua atenção'}</h2><p>${escapeHtml(data.server.name)} · ${Number(data.server.members).toLocaleString('pt-BR')} membros · atualizado às ${escapeHtml(new Date(data.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))}</p></div><div class="overview-actions"><button class="secondary jump-page" data-target="services" type="button">${icon('activity')} Saúde do bot</button><button class="primary jump-page" data-target="store" type="button">${icon('store')} Gerenciar loja</button></div></section>
     <div class="grid overview-grid">
-      <article class="card overview-metric"><div class="overview-metric-label">Conexão Discord ${icon('activity', 'metric-icon')}</div><div class="metric">${data.bot.ready ? 'Online' : 'Offline'}</div>${badge(data.bot.ready ? ping : 'Sem conexão', data.bot.ready ? 'ok' : 'bad')}<p class="detail">Ativo há ${escapeHtml(formatUptime(data.bot.uptimeSeconds))}</p></article>
-      <article class="card overview-metric"><div class="overview-metric-label">Serviços operantes ${icon('shield-check', 'metric-icon')}</div><div class="metric">${healthy}<span class="metric-total">/${services.length}</span></div>${badge(healthy === services.length ? 'Tudo certo' : 'Requer atenção', healthy === services.length ? 'ok' : 'warn')}<p class="detail">Conexões e recursos principais.</p></article>
-      <article class="card overview-metric"><div class="overview-metric-label">Automações ativas ${icon('bot', 'metric-icon')}</div><div class="metric">${activeAutomations}<span class="metric-total">/${data.automations.length}</span></div><p class="detail">Rotinas habilitadas no servidor.</p></article>
-      <article class="card overview-metric"><div class="overview-metric-label">Métodos de pagamento ${icon('credit-card', 'metric-icon')}</div><div class="metric">${data.payments.active}</div><p class="detail">${data.payments.inactive} inativos · dados sensíveis protegidos.</p><button class="text-action jump-page" data-target="payments" type="button">Configurar pagamentos ${icon('arrow-up-right')}</button></article>
+      <article class="card overview-metric"><div class="overview-metric-label">Discord ${icon('activity', 'metric-icon')}</div><div class="metric">${data.bot.ready ? 'Online' : 'Offline'}</div><p class="metric-foot">${data.bot.ready ? ping : 'Sem conexão'} · ativo há ${escapeHtml(formatUptime(data.bot.uptimeSeconds))}</p></article>
+      <article class="card overview-metric"><div class="overview-metric-label">Vendas hoje ${icon('shopping-bag', 'metric-icon')}</div><div class="metric">${todayOrders.length}</div><p class="metric-foot">${money(todayRevenue)} confirmados</p></article>
+      <article class="card overview-metric"><div class="overview-metric-label">Faturamento registrado ${icon('chart-no-axes-combined', 'metric-icon')}</div><div class="metric metric-money">${money(totalRevenue)}</div><p class="metric-foot">${paidOrders.length} venda(s) paga(s) no histórico carregado</p></article>
+      <article class="card overview-metric"><div class="overview-metric-label">Pendências ${icon('clock-3', 'metric-icon')}</div><div class="metric">${pendingOrders.length}</div><p class="metric-foot">Pedidos aguardando pagamento</p><button class="text-action jump-page" data-target="store" type="button">Ver pedidos ${icon('arrow-up-right')}</button></article>
     </div>
-    <div class="overview-lower-grid">
-      <section class="card health-card"><div class="section-head"><div><h2>Vendas nos últimos 7 dias</h2><p class="detail">Soma dos pedidos com pagamento confirmado.</p></div>${badge(`${orders.filter(order => order.paidAt).length} pagos`, 'ok')}</div>${renderSalesChart(orders)}</section>
-      <section class="card"><div class="section-head"><div><h2>Acesso rápido</h2><p class="detail">Atalhos para as tarefas mais usadas.</p></div></div><div class="quick-actions-list"><button class="quick-action jump-page" data-target="store" type="button">${icon('store')}Editar produtos</button><button class="quick-action jump-page" data-target="payments" type="button">${icon('credit-card')}Pagamentos</button><button class="quick-action jump-page" data-target="automations" type="button">${icon('bot')}Automações</button></div></section>
-    </div>
-    <div class="section-head"><div><h2>Saúde dos serviços</h2><p class="detail">Estado das conexões e recursos que sustentam o bot.</p></div><button class="ghost jump-page" data-target="services" type="button">Detalhes dos serviços →</button></div>
-    <div class="grid two">${services.map(([key, item]) => `<article class="card"><div class="status-line"><span class="status-icon ${item.operational ? 'is-ok' : item.active ? 'is-warn' : ''}" aria-hidden="true"></span><div><h3>${escapeHtml(serviceName(key))}</h3>${statusBadge(item.active, item.operational, item.configured !== false)}<p class="detail">${escapeHtml(item.detail)}</p></div></div></article>`).join('')}</div>
-    <div class="section-head"><div><h2>Precisa de atenção</h2><p class="detail">Itens habilitados que ainda dependem de configuração.</p></div><button class="ghost jump-page" data-target="automations" type="button">Revisar automações →</button></div>
-    <div class="grid two">${problematicServices.map(([key, item]) => `<article class="card attention-card"><h3>${escapeHtml(serviceName(key))}</h3>${badge('Serviço requer atenção', 'warn')}<p class="detail">${escapeHtml(item.detail)}</p></article>`).join('')}${problematicAutomations.map(item => `<article class="card attention-card"><h3>${escapeHtml(item.label)}</h3>${badge('Ativa · requer atenção', 'warn')}<p class="detail">${escapeHtml(item.detail)}</p></article>`).join('')}${!problematicServices.length && !problematicAutomations.length ? '<div class="card"><p class="detail">Nenhum serviço ou automação ativa com dependências pendentes.</p></div>' : ''}</div>`;
+    <div class="overview-layout">
+      <div class="overview-main-column">
+        <section class="card health-card"><div class="section-head"><div><h2>Vendas</h2><p class="detail">Valores recebidos dos pedidos pagos.</p></div><div class="chart-toolbar"><span>${badge(`${paidOrders.length} pagos`, 'ok')}</span><div class="chart-period-switch" role="group" aria-label="Período do gráfico"><button type="button" class="chart-period active" data-days="7">7 dias</button><button type="button" class="chart-period" data-days="30">30 dias</button></div></div></div><div id="overview-sales-chart">${renderSalesChart(orders, 7)}</div></section>
+        <section class="card recent-orders-card"><div class="section-head"><div><h2>Vendas recentes</h2><p class="detail">Últimos pagamentos confirmados.</p></div><button class="ghost jump-page" data-target="store" type="button">Ver todos ${icon('arrow-up-right')}</button></div>${latestOrders.length ? `<div class="recent-order-list">${latestOrders.map(order => `<div class="recent-order-row"><span class="order-product-icon">${icon('package-open')}</span><div class="recent-order-copy"><strong>${escapeHtml(order.productName || 'Produto')}</strong><small>${escapeHtml(order.paidAt ? new Date(order.paidAt).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '')}</small></div><strong class="recent-order-value">${money(order.amountCents || 0)}</strong>${badge('Pago', 'ok')}</div>`).join('')}</div>` : '<div class="chart-empty compact-empty">Ainda não há vendas pagas registradas.</div>'}</section>
+      </div>
+      <aside class="overview-side-column">
+        <section class="card product-mix-card"><div class="section-head"><div><h2>Produtos mais vendidos</h2><p class="detail">Participação no faturamento confirmado.</p></div></div>${productGroups.length ? `<div class="donut-layout"><div class="sales-donut" style="--donut-chart:conic-gradient(${productGradient})" role="img" aria-label="Distribuição das vendas pagas por produto"><span><small>Total pago</small><strong>${money(productGrandTotal)}</strong></span></div><div class="donut-legend">${productGroups.map(([name, amount], index) => `<div><i style="--legend-color:${chartColors[index]}"></i><span>${escapeHtml(name)}</span><strong>${productGrandTotal ? Math.round(amount / productGrandTotal * 100) : 0}%</strong></div>`).join('')}</div></div>` : '<div class="chart-empty compact-empty">Os produtos vendidos aparecerão aqui após a primeira confirmação de pagamento.</div>'}</section>
+        <section class="card"><div class="section-head"><div><h2>Pagamentos recebidos</h2><p class="detail">Pedidos pagos por método.</p></div></div>${paymentGroups.length ? `<div class="payment-source-list">${paymentGroups.map(([name, count], index) => `<div class="payment-source-row"><div><span>${escapeHtml(name)}</span><strong>${count}</strong></div><div class="payment-source-track"><i style="--bar-color:${chartColors[index]};width:${Math.round(count / paymentMax * 100)}%"></i></div></div>`).join('')}</div>` : '<div class="chart-empty compact-empty">Os métodos usados aparecerão aqui após a primeira venda.</div>'}</section>
+        <section class="card"><div class="section-head"><div><h2>Saúde do bot</h2><p class="detail">Estado atual dos recursos.</p></div>${badge(`${healthy}/${services.length}`, healthy === services.length ? 'ok' : 'warn')}</div><div class="service-health-list">${services.map(([key, item]) => `<div class="service-health-row"><span class="status-icon ${item.operational ? 'is-ok' : item.active ? 'is-warn' : ''}" aria-hidden="true"></span><span>${escapeHtml(serviceName(key))}</span>${statusBadge(item.active, item.operational, item.configured !== false)}</div>`).join('')}</div><button class="text-action jump-page" data-target="services" type="button">Abrir diagnóstico ${icon('arrow-up-right')}</button></section>
+        <section class="card"><div class="section-head"><div><h2>Acesso rápido</h2><p class="detail">Atalhos para tarefas frequentes.</p></div></div><div class="quick-actions-list"><button class="quick-action jump-page" data-target="announcements" type="button">${icon('megaphone')}Avisos e imagens</button><button class="quick-action jump-page" data-target="automations" type="button">${icon('bot')}Automações</button><button class="quick-action jump-page" data-target="payments" type="button">${icon('credit-card')}Pagamentos</button><button class="quick-action jump-page" data-target="channels" type="button">${icon('hash')}Canais</button></div></section>
+        <section class="card attention-panel"><div class="section-head"><div><h2>Precisa de atenção</h2><p class="detail">Itens ativos com configuração pendente.</p></div>${badge(String(attentionItems.length), attentionItems.length ? 'warn' : 'ok')}</div>${attentionItems.length ? `<div class="attention-list">${attentionItems.map(item => `<button class="attention-row jump-page" data-target="${escapeHtml(item.target)}" type="button"><span>${icon('circle-question-mark')}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span>${icon('arrow-right')}</button>`).join('')}</div>` : '<p class="detail attention-clear">Nenhuma pendência operacional encontrada.</p>'}</section>
+      </aside>
+    </div>`;
+  document.querySelectorAll('.chart-period').forEach(button => button.addEventListener('click', () => {
+    document.querySelectorAll('.chart-period').forEach(item => item.classList.toggle('active', item === button));
+    byId('overview-sales-chart').innerHTML = renderSalesChart(orders, Number(button.dataset.days));
+  }));
 }
 
-function renderSalesChart(orders) {
-  const days = Array.from({ length: 7 }, (_, index) => {
+function renderSalesChart(orders, periodDays = 7) {
+  const days = Array.from({ length: periodDays }, (_, index) => {
     const date = new Date(); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - (6 - index));
-    return { date, label: new Intl.DateTimeFormat('pt-BR', { weekday: 'short' }).format(date).replace('.', '').slice(0, 3), cents: 0 };
+    date.setDate(date.getDate() - (periodDays - 7));
+    return { date, label: periodDays === 7 ? new Intl.DateTimeFormat('pt-BR', { weekday: 'short' }).format(date).replace('.', '').slice(0, 3) : String(date.getDate()), cents: 0 };
   });
   for (const order of orders) {
     if (!order.paidAt || !Number.isFinite(order.amountCents)) continue;
@@ -104,11 +143,11 @@ function renderSalesChart(orders) {
     if (point) point.cents += order.amountCents;
   }
   const max = Math.max(...days.map(day => day.cents));
-  if (!max) return '<div class="chart-empty">As vendas confirmadas dos últimos sete dias aparecerão aqui.</div>';
-  const points = days.map((day, index) => ({ ...day, x: 30 + index * 106, y: 127 - (day.cents / max) * 94 }));
+  if (!max) return `<div class="chart-empty">As vendas confirmadas dos últimos ${periodDays} dias aparecerão aqui.</div>`;
+  const points = days.map((day, index) => ({ ...day, x: 30 + index * (636 / Math.max(days.length - 1, 1)), y: 127 - (day.cents / max) * 94 }));
   const line = points.map(point => `${point.x},${point.y}`).join(' ');
   const area = `30,135 ${line} 666,135`;
-  return `<svg class="health-chart" viewBox="0 0 696 160" role="img" aria-label="Gráfico de faturamento dos últimos sete dias">${[30, 65, 100, 135].map(y => `<line class="chart-grid" x1="24" y1="${y}" x2="672" y2="${y}" />`).join('')}<defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#6867e7" stop-opacity=".22"/><stop offset="100%" stop-color="#6867e7" stop-opacity="0"/></linearGradient></defs><polygon class="chart-area" points="${area}"/><polyline class="chart-line" points="${line}"/>${points.map(point => `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="4"><title>${escapeHtml(point.label)}: ${escapeHtml(money(point.cents))}</title></circle><text class="chart-label" x="${point.x}" y="153">${escapeHtml(point.label)}</text>`).join('')}</svg>`;
+  return `<svg class="health-chart" viewBox="0 0 696 160" role="img" aria-label="Gráfico de faturamento dos últimos ${periodDays} dias">${[30, 65, 100, 135].map(y => `<line class="chart-grid" x1="24" y1="${y}" x2="672" y2="${y}" />`).join('')}<defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#4658bd" stop-opacity=".22"/><stop offset="100%" stop-color="#4658bd" stop-opacity="0"/></linearGradient></defs><polygon class="chart-area" points="${area}"/><polyline class="chart-line" points="${line}"/>${points.map((point, index) => `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="${periodDays === 30 && index % 3 ? 2 : 4}"><title>${escapeHtml(point.label)}: ${escapeHtml(money(point.cents))}</title></circle>${periodDays === 7 || index % 5 === 0 || index === points.length - 1 ? `<text class="chart-label" x="${point.x}" y="153">${escapeHtml(point.label)}</text>` : ''}`).join('')}</svg>`;
 }
 
 function openAnnouncementDialog(announcement = null) {
@@ -117,6 +156,9 @@ function openAnnouncementDialog(announcement = null) {
   byId('announcement-dialog-title').textContent = announcement ? 'Editar aviso' : 'Novo aviso';
   byId('announcement-title').value = announcement?.titulo ?? '';
   byId('announcement-text').value = announcement?.texto ?? '';
+  byId('announcement-image').value = announcement?.imageUrl ?? '';
+  byId('announcement-image-preview').hidden = !announcement?.imageUrl;
+  if (announcement?.imageUrl) byId('announcement-image-preview').src = announcement.imageUrl;
   byId('announcement-error').textContent = '';
   byId('save-announcement').innerHTML = announcement ? 'Salvar alterações' : `${icon('megaphone')} Publicar aviso`;
   byId('announcement-dialog').showModal();
@@ -125,11 +167,45 @@ function openAnnouncementDialog(announcement = null) {
 
 function renderAnnouncements() {
   const channel = state.data.channels.find(item => item.key === 'fivemAnnouncements');
+  const wallpaperData = state.wallpapers;
+  const schedule = state.config;
+  const hoursText = schedule?.announcementHours?.map(hour => `${String(hour).padStart(2, '0')}:00`).join(', ') ?? 'carregando';
   byId('content').innerHTML = `<section class="announcement-intro"><div class="announcement-intro-icon">${icon('megaphone')}</div><div><h2>Avisos do servidor</h2><p>Gerencie o que aparece em <strong>${escapeHtml(channel?.name ? `#${channel.name}` : 'canal FiveM configurado')}</strong>. Ao salvar, o Discord é atualizado junto com o registro local.</p></div><button class="primary" id="new-announcement" type="button">${icon('plus')} Novo aviso</button></section>
+    <section class="card announcement-schedule"><div><strong>Avisos automáticos</strong><span>${escapeHtml(hoursText)} · fuso ${escapeHtml(schedule?.timezone ?? 'America/Sao_Paulo')}</span></div><button class="tiny" data-target="config" type="button">${icon('settings-2')} Configurar horários e canais</button></section>
+    <section class="card wallpaper-manager"><div class="wallpaper-manager-head"><div><p class="eyebrow">BIBLIOTECA DE IMAGENS</p><h2>Wallpapers diários</h2><p class="detail">A pasta é verificada automaticamente: imagens com nomes diferentes ou dentro de subpastas são organizadas como <code>1.png</code>, <code>2.png</code>… a partir do dia atual. Uploads também recebem a próxima numeração livre.</p></div><button id="wallpaper-upload-button" class="secondary" type="button">${icon('image')} Enviar wallpapers</button><input id="wallpaper-upload-input" type="file" accept=".png,.jpg,.jpeg,.webp,.gif,image/png,image/jpeg,image/webp,image/gif" multiple hidden></div><div class="wallpaper-upload-meta"><span>Dia atual: <strong>${wallpaperData.currentDay}/105</strong></span><span>Próximo número: <strong>${wallpaperData.nextDay ?? 'sequência completa'}</strong></span><span>${wallpaperData.files.length} imagem(ns) na pasta</span></div><p id="wallpaper-upload-progress" class="detail" aria-live="polite"></p><div class="wallpaper-grid">${wallpaperData.files.length ? wallpaperData.files.map(file => `<article class="wallpaper-tile ${file.current ? 'is-current' : ''}"><img src="${escapeHtml(file.url)}" alt="Wallpaper do dia ${file.day}" loading="lazy"><div><strong>Dia ${file.day}</strong><span>${escapeHtml(file.name)} · ${(file.size / 1048576).toFixed(1)} MiB</span>${file.current ? '<em>Próximo a publicar</em>' : ''}</div></article>`).join('') : '<p class="detail">A pasta ainda não tem wallpapers.</p>'}</div></section>
     <div class="section-head"><div><h2>Avisos publicados</h2><p class="detail">${state.announcements.length} aviso(s) no catálogo.</p></div><label class="announcement-search-wrap">${icon('search')}<input id="announcement-search" type="search" placeholder="Buscar aviso…" aria-label="Buscar avisos"></label></div>
-    <div id="announcement-list" class="announcement-list">${state.announcements.length ? state.announcements.map(item => `<article class="card announcement-card" data-search-row><div class="announcement-main"><div class="announcement-card-icon">${icon('file-text')}</div><div class="announcement-copy"><div class="announcement-card-heading"><h3>${escapeHtml(item.titulo)}</h3>${badge('Publicado', 'ok')}</div><p>${escapeHtml(item.texto)}</p><small>Atualizado em ${escapeHtml(new Date(item.updatedAt ?? item.createdAt).toLocaleString('pt-BR'))}</small></div></div><div class="announcement-actions"><button class="tiny edit-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('file-text')} Editar</button><button class="tiny danger delete-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('x')} Remover</button></div></article>`).join('') : `<div class="empty-state"><div class="empty-state-icon">${icon('megaphone')}</div><h3>Nenhum aviso cadastrado</h3><p>Crie seu primeiro aviso para publicar uma mensagem no canal FiveM.</p><button class="primary" id="new-announcement-empty" type="button">${icon('plus')} Criar primeiro aviso</button></div>`}</div><p id="announcement-empty-search" class="empty" hidden>Nenhum aviso corresponde à busca.</p>`;
+    <div id="announcement-list" class="announcement-list">${state.announcements.length ? state.announcements.map(item => `<article class="card announcement-card" data-search-row><div class="announcement-main"><div class="announcement-card-icon">${icon('file-text')}</div><div class="announcement-copy"><div class="announcement-card-heading"><h3>${escapeHtml(item.titulo)}</h3>${badge(item.imageUrl ? 'Com imagem' : 'Publicado', 'ok')}</div><p>${escapeHtml(item.texto)}</p>${item.imageUrl ? `<img class="announcement-card-image" src="${escapeHtml(item.imageUrl)}" alt="Prévia do aviso ${escapeHtml(item.titulo)}" loading="lazy">` : ''}<small>Atualizado em ${escapeHtml(new Date(item.updatedAt ?? item.createdAt).toLocaleString('pt-BR'))}</small></div></div><div class="announcement-actions"><button class="tiny edit-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('file-text')} Editar</button><button class="tiny danger delete-announcement" data-id="${escapeHtml(item.id)}" type="button">${icon('x')} Remover</button></div></article>`).join('') : `<div class="empty-state"><div class="empty-state-icon">${icon('megaphone')}</div><h3>Nenhum aviso cadastrado</h3><p>Crie seu primeiro aviso para publicar uma mensagem no canal FiveM.</p><button class="primary" id="new-announcement-empty" type="button">${icon('plus')} Criar primeiro aviso</button></div>`}</div><p id="announcement-empty-search" class="empty" hidden>Nenhum aviso corresponde à busca.</p>`;
   byId('new-announcement')?.addEventListener('click', () => openAnnouncementDialog());
   byId('new-announcement-empty')?.addEventListener('click', () => openAnnouncementDialog());
+  byId('wallpaper-upload-button')?.addEventListener('click', () => byId('wallpaper-upload-input').click());
+  byId('wallpaper-upload-input')?.addEventListener('change', async event => {
+    const files = [...event.currentTarget.files];
+    const button = byId('wallpaper-upload-button');
+    const progress = byId('wallpaper-upload-progress');
+    if (!files.length) return;
+    button.disabled = true;
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        progress.textContent = `Enviando ${index + 1}/${files.length}: ${file.name}`;
+        const response = await fetch('/api/painel/wallpapers', { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) }, body: file });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result?.erro || `Falha HTTP ${response.status}`);
+      }
+      state.wallpapers = await request('/api/painel/wallpapers');
+      renderAnnouncements();
+      notice(`${files.length} wallpaper(s) salvo(s) com numeração sequencial em Wallpapers.`);
+    } catch (error) {
+      progress.textContent = error.message;
+      notice(error.message, true);
+    } finally {
+      const input = byId('wallpaper-upload-input');
+      if (input) input.value = '';
+      const currentButton = byId('wallpaper-upload-button');
+      if (currentButton) currentButton.disabled = false;
+    }
+  });
   byId('announcement-search')?.addEventListener('input', event => {
     const query = event.currentTarget.value.trim().toLocaleLowerCase('pt-BR');
     const cards = [...document.querySelectorAll('#announcement-list [data-search-row]')];
@@ -149,9 +225,10 @@ function renderAnnouncements() {
 }
 
 function renderAssistant() {
-  const isReady = Boolean(state.data.services.gemini?.configured);
+  const assistant = state.data.services.aiAssistant;
+  const isReady = Boolean(assistant?.ready);
   const messages = state.assistantMessages.map(message => `<article class="assistant-message ${message.role === 'user' ? 'from-user' : message.role === 'error' ? 'from-error' : 'from-assistant'}"><span class="assistant-avatar">${message.role === 'user' ? icon('users') : icon('sparkles')}</span><div><div class="assistant-speaker">${message.role === 'user' ? 'Você' : message.role === 'error' ? 'Não foi possível responder' : 'Assistente STZ'}</div><p>${escapeHtml(message.text)}</p></div></article>`).join('');
-  byId('content').innerHTML = `<section class="assistant-shell"><header class="assistant-header"><div class="assistant-avatar large">${icon('sparkles')}</div><div><p class="eyebrow">ASSISTENTE DO PAINEL</p><h2>Como posso ajudar?</h2><p>Posso explicar as opções, ajudar a encontrar configurações e orientar o próximo passo.</p></div>${badge(isReady ? 'Gemini conectado' : 'Configure GEMINI_API_KEY', isReady ? 'ok' : 'warn')}</header><div class="assistant-suggestions"><span>EXPERIMENTE</span><button type="button" data-prompt="Como cadastro, edito e removo um aviso?">${icon('megaphone')} Gerenciar avisos</button><button type="button" data-prompt="Como configuro um produto e a entrega automática?">${icon('store')} Configurar a loja</button><button type="button" data-prompt="Quais etapas faltam para ativar o Mercado Pago?">${icon('credit-card')} Pagamentos</button></div><div id="assistant-transcript" class="assistant-transcript">${messages || `<div class="assistant-welcome"><div class="assistant-welcome-icon">${icon('messages-square')}</div><h3>Seu apoio dentro do painel</h3><p>Faça uma pergunta sobre configurações, canais, avisos, produtos ou automações. A resposta considera apenas um resumo do estado atual.</p><span>${icon('shield-check')} Credenciais e IDs de compradores não são enviados como contexto.</span></div>`}</div><form id="assistant-form" class="assistant-composer"><textarea id="assistant-input" maxlength="1200" rows="2" placeholder="Escreva sua pergunta…" aria-label="Pergunte à assistente" ${isReady ? '' : 'disabled'}></textarea><button class="primary" type="submit" ${isReady ? '' : 'disabled'}>${icon('send')} Enviar</button></form><p class="assistant-disclosure">As mensagens da assistente são processadas pelo Gemini usando a chave já configurada no servidor. Não inclua senhas, tokens, chaves Pix ou dados pessoais.</p></section>`;
+  byId('content').innerHTML = `<section class="assistant-shell"><header class="assistant-header"><div class="assistant-avatar large">${icon('sparkles')}</div><div><p class="eyebrow">ASSISTENTE LOCAL DO PAINEL</p><h2>Como posso ajudar?</h2><p>${escapeHtml(assistant?.detail ?? 'Configure o Ollama local no computador do bot.')}</p></div>${badge(isReady ? `Ollama · ${assistant.model}` : 'Modelo local indisponível', isReady ? 'ok' : 'warn')}</header><div class="assistant-suggestions"><span>EXPERIMENTE</span><button type="button" data-prompt="Como cadastro, edito e removo um aviso?">${icon('megaphone')} Gerenciar avisos</button><button type="button" data-prompt="Como configuro um produto e a entrega automática?">${icon('store')} Configurar a loja</button><button type="button" data-prompt="Quais etapas faltam para ativar o Mercado Pago?">${icon('credit-card')} Pagamentos</button></div><div id="assistant-transcript" class="assistant-transcript">${messages || `<div class="assistant-welcome"><div class="assistant-welcome-icon">${icon('messages-square')}</div><h3>Seu apoio dentro do painel</h3><p>Faça uma pergunta sobre configurações, canais, avisos, produtos ou automações. A resposta considera apenas um resumo do estado atual.</p><span>${icon('shield-check')} O modelo roda no mesmo computador do bot; mensagens não são enviadas a uma API externa.</span></div>`}</div><form id="assistant-form" class="assistant-composer"><textarea id="assistant-input" maxlength="1200" rows="2" placeholder="Escreva sua pergunta…" aria-label="Pergunte à assistente" ${isReady ? '' : 'disabled'}></textarea><button class="primary" type="submit" ${isReady ? '' : 'disabled'}>${icon('send')} Enviar</button></form><p class="assistant-disclosure">A IA usa o Ollama e o modelo ${escapeHtml(assistant?.model ?? 'qwen2.5:3b')} instalado localmente no computador que executa o bot. Não inclui tokens, senhas nem chaves Pix nas perguntas do assistente.</p></section>`;
   byId('assistant-form')?.addEventListener('submit', async event => {
     event.preventDefault();
     const input = byId('assistant-input'); const message = input.value.trim();
@@ -181,7 +258,7 @@ function renderAssistant() {
   if (messages) byId('assistant-transcript').scrollTop = byId('assistant-transcript').scrollHeight;
 }
 
-function serviceName(key) { return ({ discord: 'Gateway Discord', api: 'API e painel web', gemini: 'Atendimento Gemini', ticketCreation: 'Criação de tickets' })[key] ?? key; }
+function serviceName(key) { return ({ discord: 'Gateway Discord', api: 'API e painel web', aiAssistant: 'Autoatendimento local (Ollama)', ticketCreation: 'Criação de tickets' })[key] ?? key; }
 function formatUptime(seconds) { const d = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600), m = Math.floor(seconds % 3600 / 60); return `${d}d ${h}h ${m}min`; }
 
 function renderServices(data) {
@@ -199,25 +276,78 @@ function renderAutomations(data) {
 }
 
 function renderChannels(data) {
-  byId('content').innerHTML = `<section class="card"><div class="section-head"><div><h2>Canais monitorados</h2><p class="detail">Encontrados automaticamente no servidor conectado.</p></div><span class="badge">${data.channels.length} canais</span></div><label class="table-search-label" for="channel-search">Filtrar canais</label><input id="channel-search" class="table-search" type="search" placeholder="Buscar por nome ou canal…"><div class="table-wrap table-wrap-inner"><table><thead><tr><th>Canal</th><th>Configuração</th><th>Permissões do bot</th><th>Estado</th></tr></thead><tbody>${data.channels.map(channel => `<tr data-search-row><td><strong>${escapeHtml(channel.label)}</strong><div class="detail">${escapeHtml(channel.name ?? '—')}</div></td><td>${channel.id ? `<code>${escapeHtml(channel.id)}</code>` : 'Não configurado'}</td><td>${channel.canView ? 'Leitura' : 'Sem leitura'} · ${channel.canSend ? 'Envio' : 'Sem envio'}</td><td>${channel.operational ? badge('Operante', 'ok') : channel.found ? badge('Permissão ausente', 'warn') : badge('Não encontrado', 'bad')}</td></tr>`).join('')}</tbody></table><p id="channel-empty" class="empty" hidden>Nenhum canal corresponde a essa busca.</p></div></section>`;
-  bindTableSearch('channel-search', 'channel-empty');
+  const channels = state.managedChannels;
+  const categories = channels.filter(channel => channel.type === 4);
+  const typeNames = { 0: 'Texto', 2: 'Voz', 4: 'Categoria', 5: 'Anúncios' };
+  const channelRows = channels.map(channel => `<tr data-channel-row><td><strong>${channel.type === 4 ? '▰ ' : '#'}${escapeHtml(channel.name)}</strong><div class="detail">${escapeHtml(typeNames[channel.type] ?? 'Canal')} · ${channel.parentId ? `em ${escapeHtml(categories.find(item => item.id === channel.parentId)?.name ?? 'categoria')}` : 'sem categoria'} · posição ${channel.position}</div></td><td><code>${escapeHtml(channel.id)}</code></td><td><button class="tiny edit-channel" data-id="${escapeHtml(channel.id)}" type="button">${icon('file-text')} Editar / mover</button> <button class="tiny danger delete-channel" data-id="${escapeHtml(channel.id)}" type="button">${icon('x')} Excluir</button></td></tr>`).join('');
+  byId('content').innerHTML = `<section class="card"><div class="section-head"><div><h2>Gerenciar canais do servidor</h2><p class="detail">Crie categorias, texto, anúncios e voz. Renomeie, mova entre categorias e ajuste a posição.</p></div><button class="primary" id="new-channel" type="button">${icon('plus')} Novo canal</button></div><label class="table-search-label" for="channel-search">Filtrar canais</label><input id="channel-search" class="table-search" type="search" placeholder="Buscar por nome ou categoria…"><div class="table-wrap table-wrap-inner"><table><thead><tr><th>Canal</th><th>ID</th><th>Ações</th></tr></thead><tbody>${channelRows || '<tr><td colspan="3">Nenhum canal gerenciável encontrado.</td></tr>'}</tbody></table></div><p class="detail">O bot precisa da permissão <strong>Gerenciar canais</strong>. A exclusão é permanente e solicita confirmação.</p></section>
+    <section class="card"><div class="section-head"><div><h2>Canais usados pelas funções do bot</h2><p class="detail">Estado e permissões atuais dos destinos configurados.</p></div><span class="badge">${data.channels.length} destinos</span></div><div class="table-wrap table-wrap-inner"><table><thead><tr><th>Função</th><th>Canal configurado</th><th>Permissões</th><th>Estado</th></tr></thead><tbody>${data.channels.map(channel => `<tr><td><strong>${escapeHtml(channel.label)}</strong></td><td>${escapeHtml(channel.name ?? 'Não configurado')}</td><td>${channel.canView ? 'Leitura' : 'Sem leitura'} · ${channel.canSend ? 'Envio' : 'Sem envio'}</td><td>${channel.operational ? badge('Operante', 'ok') : channel.found ? badge('Permissão ausente', 'warn') : badge('Não encontrado', 'bad')}</td></tr>`).join('')}</tbody></table></div></section>`;
+  byId('new-channel').addEventListener('click', () => openChannelDialog());
+  document.querySelectorAll('.edit-channel').forEach(button => button.addEventListener('click', () => openChannelDialog(channels.find(channel => channel.id === button.dataset.id))));
+  document.querySelectorAll('.delete-channel').forEach(button => button.addEventListener('click', async () => {
+    const channel = channels.find(item => item.id === button.dataset.id);
+    if (!channel || !window.confirm(`Excluir permanentemente #${channel.name}?`)) return;
+    button.disabled = true;
+    try { await request(`/api/painel/channels/${encodeURIComponent(channel.id)}`, { method: 'DELETE' }); state.managedChannels = (await request('/api/painel/channels')).channels; renderChannels(data); notice(`Canal #${channel.name} excluído.`); }
+    catch (error) { notice(error.message, true); button.disabled = false; }
+  }));
+  byId('channel-search').addEventListener('input', event => {
+    const query = event.currentTarget.value.trim().toLocaleLowerCase('pt-BR');
+    document.querySelectorAll('[data-channel-row]').forEach(row => { row.hidden = !row.textContent.toLocaleLowerCase('pt-BR').includes(query); });
+  });
+}
+
+function openChannelDialog(channel = null) {
+  const form = byId('channel-form');
+  const categories = state.managedChannels.filter(item => item.type === 4 && item.id !== channel?.id);
+  form.dataset.id = channel?.id ?? '';
+  byId('channel-dialog-title').textContent = channel ? 'Editar ou mover canal' : 'Criar canal';
+  byId('channel-name').value = channel?.name ?? '';
+  byId('channel-type').value = channel ? ({ 0: 'text', 2: 'voice', 4: 'category', 5: 'announcement' })[channel.type] : 'text';
+  byId('channel-type').disabled = Boolean(channel);
+  byId('channel-topic').value = channel?.topic ?? '';
+  byId('channel-topic').disabled = channel?.type === 4 || channel?.type === 2;
+  byId('channel-parent').innerHTML = `<option value="">Sem categoria</option>${categories.map(item => `<option value="${escapeHtml(item.id)}" ${channel?.parentId === item.id ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}`;
+  byId('channel-parent').disabled = channel?.type === 4;
+  byId('channel-position').value = channel?.position ?? 0;
+  byId('channel-error').textContent = '';
+  byId('channel-dialog').showModal();
+  byId('channel-name').focus();
 }
 
 function renderConfig() {
   const config = state.config;
   if (!config) { byId('content').innerHTML = '<div class="card">Carregando configurações…</div>'; return; }
   const channelLabels = Object.fromEntries((state.data.channels ?? []).map(channel => [channel.key, channel.label]));
+  const ticketPanels = config.ticketPanels;
+  const supportOptionsText = ticketPanels.support.options.map(option => [option.label, option.description ?? '', option.value, option.emoji ?? ''].join(' | ')).join('\n');
+  const collectTicketPanels = form => ({
+    support: { title: form.elements.supportTitle.value, description: form.elements.supportDescription.value, placeholder: form.elements.supportPlaceholder.value, options: form.elements.supportOptions.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => { const [label, description, value, emoji] = line.split('|').map(item => item.trim()); return { label, description, value, emoji }; }) },
+    purchase: { title: form.elements.purchaseTitle.value, description: form.elements.purchaseDescription.value },
+    maintenance: { title: form.elements.maintenanceTitle.value, message: form.elements.maintenanceMessage.value }
+  });
   const selectFor = (key, id) => {
-    const category = key === 'supportCategory';
+    const category = ['supportCategory', 'purchaseCategory'].includes(key);
     const options = config.availableChannels.filter(channel => category ? channel.type === 'category' : channel.type === 'text');
     return `<div class="config-channel"><label>${escapeHtml(channelLabels[key] ?? key)}</label><select name="channel:${escapeHtml(key)}"><option value="">Desativado</option>${options.map(channel => `<option value="${escapeHtml(channel.id)}" ${id === channel.id ? 'selected' : ''}>#${escapeHtml(channel.name)}</option>`).join('')}</select></div>`;
   };
   byId('content').innerHTML = `<form id="config-form">
     <div class="section-head"><div><h2>Rotinas e fuso horário</h2><p class="detail">As alterações valem para os próximos ciclos do bot.</p></div></div>
-    <section class="card"><div class="form-grid three"><div><label for="config-timezone">Fuso IANA</label><input id="config-timezone" name="timezone" value="${escapeHtml(config.timezone)}" placeholder="America/Sao_Paulo" required></div><div><label for="config-hours">Horários dos avisos</label><input id="config-hours" name="hours" value="${config.announcementHours.join(', ')}" placeholder="9, 15, 21" required><p class="detail">Horas inteiras de 0 a 23, separadas por vírgula.</p></div><div class="toggle-card"><label for="config-mentions">Permitir @everyone automático</label><input id="config-mentions" name="mentions" type="checkbox" ${config.everyoneMentions ? 'checked' : ''}><p class="detail">Controla menções enviadas pelas rotinas automáticas.</p></div></div></section>
+    <section class="card config-general-card"><div class="form-grid three"><div><label for="config-timezone">Fuso horário</label><input id="config-timezone" name="timezone" value="${escapeHtml(config.timezone)}" placeholder="America/Sao_Paulo" autocomplete="off" required><p class="detail">Use um fuso IANA, como America/Sao_Paulo.</p></div><div><label for="config-hours">Horários dos avisos</label><input id="config-hours" name="hours" value="${config.announcementHours.join(', ')}" placeholder="9, 15, 21" autocomplete="off" required><p class="detail">Horas inteiras entre 0 e 23, separadas por vírgula.</p></div><label class="config-mentions-toggle" for="config-mentions"><span><strong>Menções nos avisos</strong><small>Permitir que as rotinas marquem @everyone.</small></span><input id="config-mentions" name="mentions" type="checkbox" ${config.everyoneMentions ? 'checked' : ''}></label></div></section>
     <div class="section-head"><div><h2>Canais do servidor</h2><p class="detail">Escolha um canal compatível ou selecione “Desativado”.</p></div></div>
     <section class="card config-channels">${Object.entries(config.channels).map(([key, id]) => selectFor(key, id)).join('')}</section>
-    <div class="section-head"><button class="primary" type="submit">Salvar configurações</button></div>
+    <div class="section-head"><div><h2>Painéis de tickets</h2><p class="detail">Compras e atendimento usam painéis separados; configure aqui os textos e as opções do menu.</p></div></div>
+    <section class="card"><div class="form-grid two">
+      <div><label for="support-title">Título do painel de suporte</label><input id="support-title" name="supportTitle" maxlength="100" value="${escapeHtml(ticketPanels.support.title)}" required></div>
+      <div><label for="support-placeholder">Texto do menu de suporte</label><input id="support-placeholder" name="supportPlaceholder" maxlength="150" value="${escapeHtml(ticketPanels.support.placeholder)}" required></div>
+      <div class="full"><label for="support-description">Descrição do painel de suporte</label><textarea id="support-description" name="supportDescription" maxlength="1000" rows="3" required>${escapeHtml(ticketPanels.support.description)}</textarea></div>
+      <div class="full"><label for="support-options">Opções do menu (uma por linha: Nome | Descrição | código | emoji)</label><textarea id="support-options" name="supportOptions" rows="6" required>${escapeHtml(supportOptionsText)}</textarea><p class="detail">Máximo de 25 opções. Exemplo: Suporte técnico | Ajuda com erros | tecnico | 🛠️</p></div>
+      <div><label for="purchase-title">Título do painel de compras</label><input id="purchase-title" name="purchaseTitle" maxlength="100" value="${escapeHtml(ticketPanels.purchase.title)}" required></div>
+      <div class="full"><label for="purchase-description">Descrição do painel de compras</label><textarea id="purchase-description" name="purchaseDescription" maxlength="1000" rows="3" required>${escapeHtml(ticketPanels.purchase.description)}</textarea></div>
+    </div></section>
+    <div class="section-head"><div><h2>Aviso de manutenção</h2><p class="detail">Edite o texto e publique no canal de avisos configurado.</p></div></div>
+    <section class="card"><div class="form-grid two"><div><label for="maintenance-title">Título do aviso</label><input id="maintenance-title" name="maintenanceTitle" maxlength="100" value="${escapeHtml(ticketPanels.maintenance.title)}" required></div><div class="full"><label for="maintenance-message">Mensagem</label><textarea id="maintenance-message" name="maintenanceMessage" maxlength="1000" rows="3" required>${escapeHtml(ticketPanels.maintenance.message)}</textarea></div></div><button class="primary" id="announce-maintenance" type="button">Publicar aviso de manutenção</button></section>
+    <div class="config-actions"><p class="detail">As alterações só entram em vigor depois de salvar.</p><div><button class="secondary" id="publish-ticket-panels" type="button">Atualizar painéis no Discord</button><button class="primary" type="submit">Salvar configurações</button></div></div>
   </form>`;
   byId('config-form').addEventListener('submit', async event => {
     event.preventDefault();
@@ -227,11 +357,40 @@ function renderConfig() {
     const channels = Object.fromEntries([...form.querySelectorAll('[name^="channel:"]')].map(select => [select.name.slice(8), select.value || null]));
     const button = form.querySelector('button[type="submit"]'); button.disabled = true;
     try {
-      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ timezone: form.elements.timezone.value.trim(), announcementHours: hoursRaw.map(Number), everyoneMentions: form.elements.mentions.checked, channels }) });
+      const ticketPanels = collectTicketPanels(form);
+      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ timezone: form.elements.timezone.value.trim(), announcementHours: hoursRaw.map(Number), everyoneMentions: form.elements.mentions.checked, channels, ticketPanels }) });
       const [status, updated] = await Promise.all([request('/api/painel/status'), request('/api/painel/config')]);
       state.data = status; state.config = updated;
       render(); notice('Configurações gerais salvas.');
     } catch (error) { notice(error.message, true); button.disabled = false; }
+  });
+  byId('publish-ticket-panels').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const form = byId('config-form');
+      const ticketPanels = collectTicketPanels(form);
+      const channels = Object.fromEntries([...form.querySelectorAll('[name^="channel:"]')].map(select => [select.name.slice(8), select.value || null]));
+      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ ticketPanels, channels }) });
+      await request('/api/painel/tickets/publish', { method: 'POST', body: '{}' });
+      state.config = await request('/api/painel/config');
+      render(); notice('Painéis de suporte e compras publicados/atualizados no Discord.');
+    } catch (error) { notice(error.message, true); }
+    finally { button.disabled = false; }
+  });
+  byId('announce-maintenance').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const form = byId('config-form');
+      const ticketPanels = collectTicketPanels(form);
+      const channels = Object.fromEntries([...form.querySelectorAll('[name^="channel:"]')].map(select => [select.name.slice(8), select.value || null]));
+      await request('/api/painel/config', { method: 'PUT', body: JSON.stringify({ ticketPanels: { maintenance: ticketPanels.maintenance }, channels }) });
+      const result = await request('/api/painel/maintenance/announce', { method: 'POST', body: '{}' });
+      const channel = config.availableChannels.find(item => item.id === config.channels.supportNotices);
+      notice(`Aviso publicado em #${channel?.name ?? 'avisos'}.`);
+    } catch (error) { notice(error.message, true); }
+    finally { button.disabled = false; }
   });
 }
 
@@ -280,7 +439,7 @@ function renderStore() {
       <form class="product-form" data-value="${escapeHtml(product.value)}">
         <div class="form-grid two"><div><label>Nome do produto</label><input name="name" value="${escapeHtml(product.name)}" maxlength="80" required></div><div><label>Nome do cargo exibido</label><input name="roleName" value="${escapeHtml(product.roleName)}" maxlength="100" required></div></div>
         <label>Descrição da vitrine</label><textarea name="description" maxlength="1000" rows="3" required>${escapeHtml(product.description)}</textarea>
-        <div class="form-grid three"><div><label>Cargo a entregar</label><select name="roleId" required><option value="" disabled ${product.roleId ? '' : 'selected'}>Selecione o cargo</option>${product.roleId && !state.roles.some(role => role.id === product.roleId) ? `<option value="${escapeHtml(product.roleId)}" selected>Cargo ${escapeHtml(product.roleId)} (verifique hierarquia)</option>` : ''}${state.roles.map(role => `<option value="${escapeHtml(role.id)}" ${product.roleId === role.id ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('')}</select></div><div><label>Validade (dias)</label><input name="durationDays" type="number" min="1" max="3650" value="${product.durationDays}" required></div><div><label>Estoque (vazio = ∞)</label><input name="stock" type="number" min="0" max="100000" value="${product.stock ?? ''}" placeholder="∞"></div></div>
+        <div class="form-grid three"><div><label>Cargos entregues (selecione todos)</label><select name="roleIds" multiple size="4" required>${state.roles.map(role => `<option value="${escapeHtml(role.id)}" ${(product.roleIds ?? [product.roleId].filter(Boolean)).includes(role.id) ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('')}</select><p class="detail">No computador, use Ctrl para marcar mais de um cargo. O pacote Booster + Premium libera os cargos Premium Booster e Server Booster.</p></div><div><label>Validade (dias)</label><input name="durationDays" type="number" min="1" max="3650" value="${product.durationDays}" required></div><div><label>Estoque (vazio = ∞)</label><input name="stock" type="number" min="0" max="100000" value="${product.stock ?? ''}" placeholder="∞"></div></div>
         <div class="form-grid two"><div><label>Preço promocional (R$)</label><input name="price" type="number" min="0.01" max="999999.99" step="0.01" value="${(product.priceCents / 100).toFixed(2)}" required></div><div><label>Preço original (R$)</label><input name="originalPrice" type="number" min="0.01" max="999999.99" step="0.01" value="${(product.originalPriceCents / 100).toFixed(2)}" required></div></div>
         <label>Imagem ou GIF (URL HTTPS; vazio restaura imagem incluída)</label><input name="customImageUrl" type="url" maxlength="500" value="${escapeHtml(product.customImageUrl)}" placeholder="https://…">
         <label>Instruções privadas após a compra</label><textarea name="deliveryMessage" maxlength="1500" rows="2">${escapeHtml(product.deliveryMessage)}</textarea>
@@ -314,7 +473,8 @@ function renderStore() {
     payload.priceCents = fromMoney(payload.price);
     payload.originalPriceCents = fromMoney(payload.originalPrice);
     payload.stock = payload.stock === '' ? null : Number(payload.stock);
-    payload.roleId = payload.roleId || null;
+    payload.roleIds = fields.getAll('roleIds');
+    payload.roleId = payload.roleIds[0] || null;
     delete payload.price;
     delete payload.originalPrice;
     const button = form.querySelector('button[type="submit"]');
@@ -420,7 +580,7 @@ function renderPayouts() {
   const statusLabel = { prepared: 'Preparado', submitting: 'Enviando', unknown: 'Aguardando confirmação', pending: 'Em processamento', credited: 'Creditado', rejected: 'Rejeitado' };
   byId('content').innerHTML = `
     <section class="card payment-provider-card"><div class="section-head"><div><p class="eyebrow">REPASSE PIX</p><h2>Comissão do sócio</h2></div>${badge(settings.enabled ? 'Automação ativa' : 'Automação pausada', settings.enabled ? 'ok' : 'warn')}</div>
-      <p class="detail">O percentual é aplicado ao valor de cada pedido pago, antes das taxas do Mercado Pago, com arredondamento por pedido para centavos. Preparar um repasse não movimenta dinheiro; o botão de envio pede confirmação explícita. A conta Mercado Pago precisa ter Payouts habilitado e saldo suficiente.</p>
+      <p class="detail">A divisão é feita sobre o valor líquido realmente recebido após as taxas do Mercado Pago. As taxas são calculadas pelos dados de liquidação do pagamento; vendas antigas sem esses dados ficam fora do repasse. Preparar um repasse não movimenta dinheiro; o botão de envio pede confirmação explícita.</p>
       <p class="detail">Modo: <strong>${settings.testMode ? 'Teste' : 'Produção'}</strong> · Destino Pix: <strong>${settings.recipientConfigured ? escapeHtml(settings.recipientMasked) : 'não cadastrado'}</strong> · ${automation?.operational ? 'Configuração pronta para uso.' : 'Confira os requisitos antes de ativar.'}</p>
       <button id="toggle-payout-automation" class="${settings.enabled ? 'secondary' : 'primary'}" ${!settings.enabled && !automation?.ready ? 'disabled' : ''}>${settings.enabled ? 'Pausar repasses' : 'Ativar repasses'}</button>
       <div class="grid two">${checks.map(([label, ready]) => `<div class="status-row">${badge(ready ? 'Pronto' : 'Pendente', ready ? 'ok' : 'warn')}<span>${escapeHtml(label)}</span></div>`).join('')}</div>
@@ -434,12 +594,14 @@ function renderPayouts() {
       </section>
       <section class="card"><h2>Conexão do Mercado Pago</h2><form id="payout-secrets-form"><label for="payout-access-token">Access Token da aplicação Payouts</label><input id="payout-access-token" type="password" autocomplete="new-password" placeholder="${settings.accessTokenReady ? 'Configurado; vazio mantém o atual' : 'Credencial de teste para começar'}">
         <label class="toggle-card" for="payout-test-mode"><input id="payout-test-mode" type="checkbox" ${settings.testMode ? 'checked' : ''}> Usar modo de teste</label>
+        <label for="payout-test-max">Limite total por rascunho no modo de teste (R$)</label><input id="payout-test-max" type="number" min="1" max="100000" step="0.01" value="${(Number(settings.testMaxCents ?? 1000) / 100).toFixed(2)}"><p class="detail">Esse limite vale somente para chamadas de teste com X-test-token. Em produção, configure a chave de assinatura abaixo.</p>
         <label for="payout-private-key-path">Caminho do arquivo da chave privada Ed25519</label><input id="payout-private-key-path" type="text" maxlength="1000" placeholder="${settings.privateSigningKeyReady ? 'Configurado; vazio mantém o atual' : 'Obrigatório somente em produção'}">
-        <p class="detail">A chave privada de produção deve ficar fora do repositório; envie a chave pública ao Mercado Pago para habilitar a assinatura. Mantenha o modo de teste enquanto valida a conta.</p>
+        <p class="detail">Para produção, gere um par Ed25519. Cadastre a chave pública com a equipe de Integrações do Mercado Pago e informe aqui o caminho absoluto da chave privada. Ela deve permanecer fora do projeto.</p>
         <button class="primary" type="submit">Salvar conexão</button></form>
       </section>
     </div>
-    <div class="grid three"><article class="card"><h2>Pedidos pagos elegíveis</h2><div class="metric">${calculation.orderCount ?? 0}</div></article><article class="card"><h2>Base bruta elegível</h2><div class="metric">${money(calculation.grossCents ?? 0)}</div></article><article class="card"><h2>Repasse calculado</h2><div class="metric">${money(calculation.totalCents ?? 0)}</div><p class="detail">${Number(settings.sharePercent ?? 0).toFixed(2)}% sobre cada pedido.</p></article></div>
+    <div class="grid two"><article class="card"><h2>Valor bruto elegível</h2><div class="metric">${money(calculation.grossCents ?? 0)}</div></article><article class="card"><h2>Taxas do Mercado Pago</h2><div class="metric">${money(calculation.feesCents ?? 0)}</div></article><article class="card"><h2>Líquido recebido</h2><div class="metric">${money(calculation.netCents ?? 0)}</div><p class="detail">Base para a divisão após as taxas.</p></article><article class="card"><h2>Repasse do sócio · ${Number(settings.sharePercent ?? 0).toFixed(2)}%</h2><div class="metric">${money(calculation.partnerShareCents ?? calculation.totalCents ?? 0)}</div><p class="detail">${calculation.orderCount ?? 0} pedidos elegíveis.</p></article><article class="card"><h2>Sua parte líquida</h2><div class="metric">${money(calculation.ownerShareCents ?? 0)}</div><p class="detail">Saldo líquido restante depois do repasse do sócio.</p></article></div>
+    ${(calculation.missingNetAmountCount ?? 0) ? `<section class="card"><p class="detail">${calculation.missingNetAmountCount} venda(s) antiga(s) não têm o líquido/taxas registrados e foram excluídas do cálculo. Os próximos pagamentos aprovados serão registrados com os dados de liquidação recebidos do Mercado Pago.</p></section>` : ''}
     <section class="card"><div class="section-head"><div><h2>Preparar um repasse</h2><p class="detail">O valor calculado será reservado contra pedidos já incluídos em outros repasses.</p></div><button id="create-payout-draft" class="primary" ${!calculation.orderCount || !settings.recipientConfigured ? 'disabled' : ''}>Preparar repasse</button></div>
       <p class="detail">Antes de enviar, confirme o valor, a chave Pix mascarada e o modo de execução. O Mercado Pago pode deixar a transferência pendente; só marcamos como creditada após consultar o estado final.</p>
     </section>
@@ -462,7 +624,7 @@ function renderPayouts() {
     event.preventDefault();
     const button = event.currentTarget.querySelector('button[type="submit"]'); button.disabled = true;
     try {
-      await request('/api/painel/payouts/secrets', { method: 'PUT', body: JSON.stringify({ accessToken: byId('payout-access-token').value.trim(), testMode: byId('payout-test-mode').checked, privateKeyPath: byId('payout-private-key-path').value.trim() }) });
+      await request('/api/painel/payouts/secrets', { method: 'PUT', body: JSON.stringify({ accessToken: byId('payout-access-token').value.trim(), testMode: byId('payout-test-mode').checked, testMaxCents: Math.round(Number(byId('payout-test-max').value) * 100), privateKeyPath: byId('payout-private-key-path').value.trim() }) });
       await refresh(); notice('Conexão Payouts salva no .env local.');
     } catch (error) { notice(error.message, true); button.disabled = false; }
   });
@@ -509,6 +671,10 @@ function render() {
     else button.removeAttribute('aria-current');
   });
   byId('content').setAttribute('aria-busy', 'false');
+  if (state.pageError) {
+    byId('content').innerHTML = `<section class="card"><div class="section-head"><div><h2>Esta seção não carregou</h2><p class="detail">${escapeHtml(state.pageError)}</p></div></div><p class="detail">A Central continua disponível. Tente atualizar esta seção ou escolha outra opção no menu.</p><button class="primary" id="retry-page" type="button">${icon('refresh-cw')} Tentar novamente</button></section>`;
+    return;
+  }
   ({ overview: renderOverview, services: renderServices, automations: renderAutomations, channels: renderChannels,
     announcements: renderAnnouncements, config: renderConfig, store: renderStore, payments: renderPayments,
     payouts: renderPayouts, assistant: renderAssistant })[state.page](state.data);
@@ -518,24 +684,31 @@ async function refresh() {
   byId('content').setAttribute('aria-busy', 'true');
   const data = await request('/api/painel/status');
   state.data = data;
-  if (state.page === 'overview') state.commerce = await request('/api/painel/commerce');
-  if (state.page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
-  if (state.page === 'payments') {
-    const [paymentData, mercadoPago] = await Promise.all([
-      request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')
-    ]);
-    state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
-  }
-  if (state.page === 'store') {
-    const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
-    state.commerce = commerce;
-    state.roles = roles.roles;
-    state.config = config;
-  }
-  if (state.page === 'config') state.config = await request('/api/painel/config');
-  if (state.page === 'payouts') state.payouts = await request('/api/painel/payouts');
+  state.pageError = '';
+  try { await loadPageData(state.page); }
+  catch (error) { state.pageError = error.message; }
   showApp();
   render();
+  if (state.pageError) notice(`Não foi possível carregar “${pageTitles[state.page]}”: ${state.pageError}`, true);
+}
+
+async function loadPageData(page) {
+  if (page === 'overview') state.commerce = await request('/api/painel/commerce');
+  if (page === 'announcements') {
+    const [announcements, wallpapers, config] = await Promise.all([request('/api/painel/announcements'), request('/api/painel/wallpapers'), request('/api/painel/config')]);
+    state.announcements = announcements.announcements; state.wallpapers = wallpapers; state.config = config;
+  }
+  if (page === 'channels') state.managedChannels = (await request('/api/painel/channels')).channels;
+  if (page === 'payments') {
+    const [paymentData, mercadoPago] = await Promise.all([request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')]);
+    state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
+  }
+  if (page === 'store') {
+    const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
+    state.commerce = commerce; state.roles = roles.roles; state.config = config;
+  }
+  if (page === 'config') state.config = await request('/api/painel/config');
+  if (page === 'payouts') state.payouts = await request('/api/painel/payouts');
 }
 
 async function navigateToPage(page) {
@@ -544,23 +717,16 @@ async function navigateToPage(page) {
   localStorage.setItem('bot-dashboard-page', page);
   byId('content').setAttribute('aria-busy', 'true');
   try {
-    if (page === 'overview') state.commerce = await request('/api/painel/commerce');
-    if (page === 'announcements') state.announcements = (await request('/api/painel/announcements')).announcements;
-    if (page === 'payments') {
-      const [paymentData, mercadoPago] = await Promise.all([request('/api/painel/payments'), request('/api/painel/payments/mercado-pago')]);
-      state.methods = paymentData.methods; state.mercadoPago = mercadoPago;
-    }
-    if (page === 'store') {
-      const [commerce, roles, config] = await Promise.all([request('/api/painel/commerce'), request('/api/painel/roles'), request('/api/painel/config')]);
-      state.commerce = commerce; state.roles = roles.roles; state.config = config;
-    }
-    if (page === 'config') state.config = await request('/api/painel/config');
-    if (page === 'payouts') state.payouts = await request('/api/painel/payouts');
-    render();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    state.pageError = '';
+    await loadPageData(page);
   } catch (error) {
-    byId('content').setAttribute('aria-busy', 'false');
-    notice(error.message, true);
+    state.pageError = error.message;
+  }
+  render();
+  if (state.pageError) {
+    notice(`Não foi possível carregar “${pageTitles[page]}”: ${state.pageError}`, true);
+  } else {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
 
@@ -596,6 +762,7 @@ function updateMethodFields() {
 
 document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => navigateToPage(button.dataset.page)));
 byId('content').addEventListener('click', event => {
+  if (event.target.closest('#retry-page')) { void refresh(); return; }
   const target = event.target.closest('[data-target]')?.dataset.target;
   if (target) void navigateToPage(target);
 });
@@ -640,7 +807,7 @@ document.addEventListener('keydown', event => {
 byId('announcement-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget; const id = form.dataset.id;
-  const payload = { titulo: byId('announcement-title').value.trim(), texto: byId('announcement-text').value.trim() };
+  const payload = { titulo: byId('announcement-title').value.trim(), texto: byId('announcement-text').value.trim(), imageUrl: byId('announcement-image').value.trim() || null };
   const button = byId('save-announcement'); button.disabled = true; byId('announcement-error').textContent = '';
   try {
     const result = await request(id ? `/api/painel/announcements/${encodeURIComponent(id)}` : '/api/painel/announcements', {
@@ -654,6 +821,32 @@ byId('announcement-form').addEventListener('submit', async event => {
 });
 byId('close-announcement').addEventListener('click', () => byId('announcement-dialog').close());
 byId('cancel-announcement').addEventListener('click', () => byId('announcement-dialog').close());
+byId('announcement-image').addEventListener('input', event => {
+  const preview = byId('announcement-image-preview');
+  const value = event.currentTarget.value.trim();
+  preview.hidden = !value;
+  if (value) preview.src = value;
+});
+byId('close-channel').addEventListener('click', () => byId('channel-dialog').close());
+byId('cancel-channel').addEventListener('click', () => byId('channel-dialog').close());
+byId('channel-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const channelId = form.dataset.id;
+  const payload = { name: byId('channel-name').value.trim(), type: byId('channel-type').value,
+    topic: byId('channel-topic').value.trim(), parentId: byId('channel-parent').value || null,
+    position: Number(byId('channel-position').value) };
+  const button = byId('save-channel'); button.disabled = true;
+  try {
+    const result = await request(channelId ? `/api/painel/channels/${encodeURIComponent(channelId)}` : '/api/painel/channels', {
+      method: channelId ? 'PATCH' : 'POST', body: JSON.stringify(payload)
+    });
+    state.managedChannels = (await request('/api/painel/channels')).channels;
+    byId('channel-dialog').close(); renderChannels(state.data);
+    notice(channelId ? 'Canal atualizado.' : `Canal #${result.channel.name} criado.`);
+  } catch (error) { byId('channel-error').textContent = error.message; }
+  finally { button.disabled = false; }
+});
 byId('method-type').addEventListener('change', updateMethodFields);
 byId('close-dialog').addEventListener('click', () => byId('method-dialog').close());
 byId('cancel-dialog').addEventListener('click', () => byId('method-dialog').close());

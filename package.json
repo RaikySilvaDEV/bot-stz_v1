@@ -6,11 +6,11 @@
   "scripts": {
     "start": "node src/process/supervisor.js",
     "start:direct": "node index.js",
+    "payouts:keygen": "node scripts/generate-payout-signing-key.js",
     "check": "node scripts/check-syntax.js",
     "test": "node --test"
   },
   "dependencies": {
-    "@google/genai": "^2.32.0",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5",
     "mercadopago": "^3.6.1",

@@ -17,6 +17,7 @@ let botRestartCount = 0;
 let tunnelRestartCount = 0;
 let stopping = false;
 let restartingBotForTunnel = false;
+let dnsFailureHintShown = false;
 let tunnelUrlReady;
 const firstTunnelUrl = new Promise(resolve => { tunnelUrlReady = resolve; });
 let hasTunnelUrl = false;
@@ -68,8 +69,13 @@ function processTunnelOutput(chunk) {
     const output = chunk.toString();
     for (const line of output.split(/\r?\n/).filter(Boolean)) {
         console.log(`[cloudflared] ${line}`);
+        if (/Failed to refresh DNS local resolver error=.*(timeout|i\/o timeout)/i.test(line) && !dnsFailureHintShown) {
+            dnsFailureHintShown = true;
+            console.warn('[cloudflared] O DNS configurado no Windows não respondeu. O túnel tentará novamente; se persistir, troque o DNS do adaptador de rede para 1.1.1.1 e 1.0.0.1 ou libere consultas UDP na porta 53.');
+        }
         const publicUrl = line.match(TUNNEL_URL_PATTERN)?.[0];
         if (!publicUrl) continue;
+        dnsFailureHintShown = false;
 
         const dashboardUrl = `${publicUrl}/painel`;
         const webhookUrl = `${publicUrl}/api/webhooks/mercado-pago`;

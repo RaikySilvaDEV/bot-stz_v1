@@ -17,7 +17,7 @@ Os três produtos iniciais são Cargo Premium (R$ 12,00), Cargo Booster (R$ 7,00
 - Node.js 20 ou superior.
 - Um aplicativo de bot no Discord Developer Portal, convidado para o servidor com permissões de mensagens, canais, cargos, membros e comandos de aplicação necessários às funções ativadas.
 - `cloudflared` no `PATH` se for usar `npm start` com túnel Cloudflare automático.
-- Uma chave Gemini para respostas automáticas dos tickets e para a Assistente interna. Sem ela, o restante do bot pode iniciar, mas esses recursos de IA ficam indisponíveis.
+- Ollama instalado no mesmo computador do bot para autoatendimento e Assistente do painel. O modelo escolhido é baixado uma vez e roda localmente, sem chave de API externa.
 
 ## Instalação
 
@@ -26,7 +26,18 @@ npm install
 Copy-Item .env.example .env
 ```
 
-Edite `.env` localmente e configure pelo menos `DISCORD_TOKEN`, `API_KEY` e uma senha forte para `DASHBOARD_PASSWORD`. Nunca envie esse arquivo pelo chat nem o adicione ao Git. `GEMINI_API_KEY` é opcional. O `.env` já está no `.gitignore`.
+Edite `.env` localmente e configure pelo menos `DISCORD_TOKEN`, `API_KEY` e uma senha forte para `DASHBOARD_PASSWORD`. Nunca envie esse arquivo pelo chat nem o adicione ao Git. `OLLAMA_MODEL` pode ser alterado se você baixar outro modelo. O `.env` já está no `.gitignore`.
+
+No computador do bot, instale o Ollama pelo instalador oficial e baixe o modelo leve padrão:
+
+```powershell
+irm https://ollama.com/install.ps1 | iex
+ollama pull qwen2.5:0.5b
+```
+
+O Ollama precisa continuar aberto no computador que executa o bot. O endpoint permitido é local (`http://127.0.0.1:11434`); o bot recusa hosts externos. Para o notebook descrito, use `qwen2.5:0.5b`. As perguntas são enviadas somente quando alguém consulta `/ia perguntar`, usa a Assistente do painel ou escreve em um ticket enquanto o autoatendimento está ativado. O bot não carrega o modelo ao iniciar e continua funcionando quando o Ollama está desligado.
+
+O modelo pequeno pode errar ou não conhecer detalhes específicos do servidor. Ele não recebe ferramentas, não pode executar comandos ou ações administrativas e não confirma pagamentos. Revise respostas importantes e encaminhe questões específicas à equipe.
 
 No Discord Developer Portal, habilite **Server Members Intent** e **Message Content Intent** se o bot usar os respectivos eventos e comandos. Depois confira a hierarquia: o cargo do bot precisa ficar acima dos cargos que ele entrega.
 
@@ -38,7 +49,19 @@ npm start
 
 `npm start` inicia o supervisor do projeto: tenta abrir o túnel Cloudflare Quick Tunnel e inicia o bot; reinicia os processos após saídas inesperadas. O URL `trycloudflare.com` é temporário e pode mudar. `Ctrl+C` encerra os processos iniciados pelo supervisor. Sem túnel, execute `npm run start:direct` para iniciar somente o bot e a API local.
 
+**Publicações diárias:** wallpaper às **12:00** e um item de cada armazém (CTZ e Boosters) às **12:30**, no fuso configurado. O avanço por item é salvo por armazém; reiniciar o bot não repete o envio no mesmo dia. Arquivos acima do limite do Discord são divididos em partes sequenciais.
+
 A API usa `API_HOST` e `API_PORT` (padrão `127.0.0.1:3001`). O túnel e o bot precisam apontar para a mesma porta. O painel local fica em `http://127.0.0.1:3001/painel`. Para acesso externo, use HTTPS e defina `DASHBOARD_PUBLIC_URL` com a URL pública completa do painel. Quick Tunnels não garantem um endereço fixo.
+
+Se o log do `cloudflared` mostrar `Failed to refresh DNS local resolver` ou `i/o timeout`, a falha está no resolvedor DNS da máquina que hospeda o bot. No PowerShell **como Administrador dessa máquina**, verifique o adaptador ativo e configure DNS público:
+
+```powershell
+$adapter = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
+Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses 1.1.1.1,1.0.0.1
+Clear-DnsClientCache
+```
+
+Para restaurar o DNS automático, execute `Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ResetServerAddresses`. A rede também precisa permitir consultas DNS de saída na porta UDP 53. O bot continua tentando reconectar o túnel; sem DNS, porém, o endereço web não fica acessível externamente.
 
 ### Instalação no Windows com atualização automática
 
@@ -64,12 +87,27 @@ O painel (`/painel`) mostra estado do bot, automações, canais, loja, pagamento
 
 O botão **Abrir painel web** no painel administrativo do Discord cria um acesso de uso único com validade limitada. A interface usa ícones Lucide distribuídos localmente (`src/api/public/icons/`), sem depender de CDN, e oferece tema escuro e navegação adaptável.
 
-A Assistente do painel é consultiva: responde sobre o estado resumido do projeto, mas não altera configurações. Quando configurada, a pergunta é enviada ao Gemini. Não inclua tokens, senhas, chaves Pix ou dados de clientes nas perguntas.
+A Assistente do painel é consultiva: responde sobre o estado resumido do projeto, mas não altera configurações. Ela usa o modelo Ollama local e não precisa de chave de API. Confira a disponibilidade em **Serviços**. Não inclua tokens, senhas, chaves Pix ou dados de clientes nas perguntas.
+
+No Discord, `/ia perguntar` consulta o modelo sob demanda; `/ia status` mostra disponibilidade, modelo, fila e tempo da última geração; `/ia ajuda` resume os comandos. O atendimento de tickets usa a mesma fila limitada. Por padrão, há uma inferência por vez e até 5 pedidos aguardando, com limite de 12 solicitações por minuto. O bot confirma que recebeu a mensagem e pede para o cliente aguardar enquanto responde. Respostas longas são continuadas quando o Ollama informa que atingiu o limite de tokens e enviadas em partes que respeitam o limite do Discord.
+
+### Ollama no Windows
+
+No computador que executa o bot, abra o PowerShell e confira o serviço/modelo:
+
+```powershell
+ollama list
+Invoke-RestMethod http://127.0.0.1:11434/api/tags
+```
+
+Se o modelo ainda não estiver instalado, execute `ollama pull qwen2.5:0.5b`. Em `.env`, mantenha `OLLAMA_HOST=http://127.0.0.1:11434` e `OLLAMA_ENABLED=true`. Não configure `OLLAMA_HOST` com IP público ou endereço de outra máquina. Para desativar apenas a IA, defina `OLLAMA_ENABLED=false`; não é necessário parar o bot. Reinicie o processo do bot depois de alterar `.env` para carregar as opções.
+
+As opções de inferência ficam no `.env` do bot: `OLLAMA_TIMEOUT_MS`, `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_THREAD`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_CONCURRENT` e `OLLAMA_MAX_QUEUE`. Os limites de proteção são `OLLAMA_GLOBAL_RPM`, `OLLAMA_MAX_PROMPT_CHARS` e `OLLAMA_MAX_RESPONSE_CHARS`. Os valores iniciais estão em `.env.example`; concorrência é limitada a uma geração para preservar o notebook. `num_thread`, contexto e `keep_alive` são parâmetros de solicitação, não garantias rígidas de CPU ou RAM; tempo real depende do modelo, contexto e carga do Windows.
 
 ## Recursos do bot
 
 - Verificação e boas-vindas de membros.
-- Tickets, transcrições e encaminhamento para atendimento humano; Gemini é opcional.
+- Tickets, transcrições, autoatendimento com Ollama local e encaminhamento para atendimento humano.
 - Parcerias e anúncios FiveM, com gerenciamento no Discord e no painel.
 - API REST protegida para criar, listar, editar e remover anúncios FiveM. Exemplos: [API-POSTMAN.md](API-POSTMAN.md).
 - Wallpapers, avisos programados, saudações e publicações dos armazéns CTZ e CTZ Boosters.
@@ -83,6 +121,9 @@ A Assistente do painel é consultiva: responde sobre o estado resumido do projet
 | `/ajuda` | Lista os comandos e recursos. |
 | `/ping` | Mostra latência e estado da conexão. |
 | `/teste` | Verifica a resposta do bot no servidor. |
+| `/ia perguntar` | Faz uma pergunta ao modelo Ollama local; resposta privada e sob demanda. |
+| `/ia status` | Mostra disponibilidade, modelo, fila e duração da última resposta. |
+| `/ia ajuda` | Mostra as funções da IA local. |
 | `/vendas` | Publica ou atualiza a vitrine de produtos. |
 | `/comprar` | Abre o fluxo de carrinho e compra. |
 | `/pagamentos` | Abre o painel interativo de métodos e preços. |
@@ -134,7 +175,13 @@ O repasse ao sócio usa a porcentagem configurada sobre cada pedido confirmado c
 | Variável | Uso |
 |---|---|
 | `DISCORD_TOKEN` | Token privado do bot. |
-| `GEMINI_API_KEY` | IA dos tickets e Assistente do painel (opcional). |
+| `OLLAMA_ENABLED` | Habilita/desabilita chamadas à IA sem afetar o bot (padrão `true`). |
+| `OLLAMA_HOST` | Endereço local permitido (padrão `http://127.0.0.1:11434`). `OLLAMA_URL` antigo continua aceito como fallback. |
+| `OLLAMA_MODEL` | Modelo Ollama já baixado (padrão `qwen2.5:0.5b`). |
+| `OLLAMA_TIMEOUT_MS`, `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT`, `OLLAMA_NUM_THREAD`, `OLLAMA_KEEP_ALIVE` | Limite de tempo e parâmetros por geração local. |
+| `OLLAMA_MAX_CONCURRENT`, `OLLAMA_MAX_QUEUE` | Concorrência (limitada a uma geração) e limite de fila. |
+| `OLLAMA_GLOBAL_RPM` | Proteção contra excesso de consultas; solicitações permitidas aguardam na fila da IA. |
+| `OLLAMA_MAX_PROMPT_CHARS`, `OLLAMA_MAX_RESPONSE_CHARS` | Limites do texto enviado e retornado. |
 | `API_KEY` | Bearer da API de anúncios e fallback de senha do painel. |
 | `DASHBOARD_PASSWORD` | Senha dedicada ao painel (recomendado). |
 | `API_HOST`, `API_PORT` | Endereço local e porta HTTP. |

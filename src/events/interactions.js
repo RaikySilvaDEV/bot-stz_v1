@@ -1,9 +1,10 @@
 import {
-    ChannelType, MessageFlags, PermissionsBitField
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags, PermissionsBitField
 } from 'discord.js';
 import { client } from '../client.js';
 import { CARGO_VERIFICADO_ID, CARGO_STAFF_SUPORTE_ID } from '../config/constants.js';
-import { getSettings } from '../repositories/settingsRepository.js';
+import { getSettings, updateSettings } from '../repositories/settingsRepository.js';
+import { getTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
 import { logAction } from '../services/audit.js';
 import { archiveAndCloseTicket } from '../services/ticketClosure.js';
 import { tratarInteracaoAdministracao } from '../features/administration.js';
@@ -14,11 +15,195 @@ import { tratarInteracaoDashboard } from '../features/dashboard.js';
 import { criarVitrineLoja, publicarSeletorProdutos, tratarInteracaoCompras } from '../features/commerce.js';
 import { tratarAdminLoja } from '../features/commerceAdmin.js';
 import { tratarInteracaoFeedback } from '../features/commerceFeedback.js';
+import { tratarComandoIa } from '../features/assistantCommands.js';
+import { iniciarAtendimentoAutomatico, iniciarAjudaCompraAutomatica } from '../features/tickets.js';
 
 const ticketsEmCriacao = new Set();
+let criandoCategoriaCompras = null;
+
+function criarAjuda() {
+    const embeds = [
+        new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle('📚 Central de comandos')
+            .setDescription([
+                'Comandos disponíveis neste servidor. Os itens marcados como **Admin** exigem o dono ou um desenvolvedor autorizado.',
+                '',
+                '**Geral e comunidade**',
+                '`/ajuda` — mostra esta lista completa.',
+                '`/ping` — latência do bot e conexão com o Discord.',
+                '`/teste` — confirma que o bot está respondendo.',
+                '`/ia perguntar pergunta:<texto>` — consulta o assistente local.',
+                '`/ia status` — mostra disponibilidade, modelo, fila e última resposta.',
+                '`/ia ajuda` — mostra os comandos da IA.',
+                '`/status` — estado do bot, API, integrações e automações. **Admin**',
+                '`/painel` — cria/atualiza o painel no Discord e oferece acesso à web. **Admin**',
+                '`/vendas` — mostra a vitrine de produtos.',
+                '`/comprar` — inicia o carrinho/fluxo de compra.',
+                '`/parcerias` — lista e gerencia parcerias. **Admin**',
+                '`/cadastrar-parceria` — abre o formulário de cadastro. **Admin**',
+                '`/anuncios-fivem` — abre o gerenciador de anúncios FiveM. **Admin**',
+                '`/logs [quantidade]` — consulta até 30 ações administrativas. **Admin**',
+                '`/backup` — baixa uma cópia dos dados administrativos. **Admin**'
+            ].join('\n')),
+        new EmbedBuilder()
+            .setColor(0x22C55E)
+            .setTitle('🛒 Loja e pedidos')
+            .setDescription([
+                '`/loja status` — vê produtos, estoque, cargos e automações.',
+                '`/loja publicar` — publica/atualiza a vitrine no canal da loja.',
+                '`/loja automacao tipo:<opção> ativa:<sim/não>` — liga ou pausa uma automação comercial.',
+                '`/loja cargo produto:<produto> cargo:<cargo>` — configura o cargo entregue após pagamento.',
+                '`/loja instrucoes produto:<produto> texto:<mensagem>` — define instruções de entrega por DM.',
+                '`/loja imagem produto:<produto> url:<HTTPS>` — define imagem ou GIF do produto.',
+                '`/loja link-entrega produto:<produto> url:<HTTPS>` — configura link de entrega digital.',
+                '`/loja estoque produto:<produto> quantidade:<n>` — define estoque; `0` significa ilimitado.',
+                '`/loja cupom-criar codigo:<código> desconto:<1–90> usos:<n> [validade-horas:<n>]` — cria cupom.',
+                '`/loja cupom-remover codigo:<código>` — remove cupom.',
+                '`/loja relatorio` — resume pedidos, pendências e faturamento registrado.',
+                '`/loja feedbacks` — mostra as avaliações recentes.',
+                '`/pedido aprovar id:<pedido>` — registra aprovação manual e tenta entregar.',
+                '`/pedido entregar id:<pedido>` — reprocessa a entrega de pedido pago.',
+                '',
+                'Os comandos `/loja` e `/pedido` são administrativos. Ative integrações só depois de configurar credenciais, cargos e canais.'
+            ].join('\n')),
+        new EmbedBuilder()
+            .setColor(0xF59E0B)
+            .setTitle('⚙️ Configuração e pagamentos')
+            .setDescription([
+                '`/pagamentos` — abre o painel interativo para cadastrar, editar, ativar e remover métodos e configurar preços dos produtos. **Admin**',
+                '`/pagamentos teste` — abre o fluxo de teste do Mercado Pago (gera cobrança real de R$ 0,10). **Admin**',
+                '`/configurar ver` — mostra canais, horários, fuso e automações. **Admin**',
+                '`/configurar canal tipo:<opção> canal:<canal/categoria>` — define destino ou categoria de um recurso. **Admin**',
+                '`/configurar automacao tipo:<opção> ativa:<sim/não>` — liga ou pausa avisos, wallpapers, armazéns ou atendimento IA. **Admin**',
+                '`/configurar mencoes ativa:<sim/não>` — controla menções automáticas @everyone. **Admin**',
+                '`/configurar horarios horas:<lista>` — agenda avisos, por exemplo `9,12,18`. **Admin**',
+                '`/configurar fuso zona:<IANA>` — define fuso, por exemplo `America/Sao_Paulo`. **Admin**',
+                '`/configurar auditoria ativa:<sim/não> [canal:<canal>]` — controla os registros administrativos. **Admin**',
+                '',
+                'Nas opções `tipo`, use o seletor do Discord para ver todos os canais e automações aceitos.'
+            ].join('\n')),
+        new EmbedBuilder()
+            .setColor(0x8B5CF6)
+            .setTitle('🧭 Painel web e rotas')
+            .setDescription([
+                'Use `/painel` e clique em **Abrir painel web**. Faça login pela sessão segura gerada no Discord. As rotas de API do painel não são comandos slash.',
+                '',
+                '**Acesso e rotas principais do painel**',
+                '`GET /painel` · interface web; `POST /api/painel/login` · login por senha; `POST /api/painel/login-ticket` · login pelo botão do Discord; `POST /api/painel/logout` · sair.',
+                '`GET /api/painel/status` · visão geral e saúde.',
+                '`GET /api/painel/config` · `PUT /api/painel/config` · canais, avisos, horários e painéis de ticket.',
+                '`GET/POST /api/painel/channels` · `PATCH/DELETE /api/painel/channels/:id` · gerenciar canais.',
+                '`GET /api/painel/roles` · cargos disponíveis; `POST /api/painel/tickets/publish` · publicar painéis de suporte e compra.',
+                '`POST /api/painel/maintenance/announce` · publicar aviso de manutenção.',
+                '`GET/POST /api/painel/announcements` · `PUT/DELETE /api/painel/announcements/:id` · avisos FiveM.',
+                '`GET /api/painel/commerce` · `PUT /api/painel/commerce/storefront` · `POST /api/painel/commerce/products` · `PUT/PATCH/DELETE /api/painel/commerce/products/:value`.',
+                '`POST /api/painel/commerce/coupons` · `DELETE /api/painel/commerce/coupons/:id` · cupons.',
+                '`PATCH /api/painel/commerce/orders/:id` · aprovar ou reentregar pedido.',
+                '`GET/POST /api/painel/payments` · `PUT/PATCH/DELETE /api/painel/payments/:id` · métodos de pagamento.',
+                '`GET/PUT /api/painel/payments/mercado-pago` · credenciais e estado do Mercado Pago.',
+                '`GET /api/painel/payouts` · `PUT /api/painel/payouts/secrets` · credenciais; `PUT /api/painel/payouts/settings` · regra/chave Pix; `POST /api/painel/payouts/drafts` · rascunho; `POST /api/painel/payouts/:id/send|reconcile` · envio/conciliação.',
+                '`PATCH /api/painel/automations/:id` · estado de automações; `POST /api/painel/assistant` · assistente interno.',
+                '`GET /painel/icons/:nome.svg` e `GET /painel/store-images/:arquivo` · ícones e imagens da interface.',
+                '`GET /api/anuncios/fivem` · `POST /api/anuncios/fivem` · `GET/PUT/DELETE /api/anuncios/fivem/:id` (Bearer `API_KEY`).',
+                '`POST /api/webhooks/mercado-pago` · notificações de pagamento; `POST /api/webhooks/mercado-pago-payouts` · notificações de repasse (assinaturas validadas).',
+                '',
+                'Os endpoints administrativos exigem sessão do painel e validação de origem. A API de anúncios exige `API_KEY`; o webhook exige configuração Mercado Pago. Uma rota configurada depende também de credenciais, permissões do Discord e canais válidos.'
+            ].join('\n'))
+    ];
+    return { embeds, allowedMentions: { parse: [] } };
+}
+
+async function obterCategoriaCompras(guild) {
+    let settings = getSettings();
+    let configurada = settings.channels.purchaseCategory
+        ? await guild.channels.fetch(settings.channels.purchaseCategory).catch(() => null)
+        : null;
+    if (configurada?.type !== ChannelType.GuildCategory && !criandoCategoriaCompras) {
+        criandoCategoriaCompras = (async () => {
+            const category = await guild.channels.create({ name: '🛒・compras', type: ChannelType.GuildCategory });
+            settings = updateSettings({ channels: { purchaseCategory: category.id } });
+            console.info(`[tickets] Categoria exclusiva de compras configurada: ${category.name} (${category.id}).`);
+            return settings.channels.purchaseCategory;
+        })().finally(() => { criandoCategoriaCompras = null; });
+    }
+    const categoryId = configurada?.type === ChannelType.GuildCategory ? configurada.id : await criandoCategoriaCompras;
+    const supportCategoryId = settings.channels.supportCategory;
+    if (supportCategoryId && categoryId !== supportCategoryId) {
+        const purchaseTickets = guild.channels.cache.filter(channel => channel.type === ChannelType.GuildText &&
+            channel.parentId === supportCategoryId && channel.topic?.includes('ticket-type:compra'));
+        for (const channel of purchaseTickets.values()) {
+            await channel.setParent(categoryId, { lockPermissions: false });
+            console.info(`[tickets] Ticket de compra movido para a categoria exclusiva: ${channel.name}.`);
+        }
+    }
+    return categoryId;
+}
+
+async function criarTicketPrivado(interaction, type, selectedOption = null) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const guild = interaction.guild;
+    if (ticketsEmCriacao.has(interaction.user.id)) return interaction.editReply({ content: 'Seu canal está sendo aberto. Aguarde um instante.' });
+    ticketsEmCriacao.add(interaction.user.id);
+    try {
+        await guild.channels.fetch();
+        const settings = getSettings();
+        const parentId = type === 'purchase' ? await obterCategoriaCompras(guild) : settings.channels.supportCategory;
+        if (!parentId) throw new Error('Configure a categoria de atendimento no painel antes de abrir tickets.');
+        const ticketType = type === 'purchase' ? 'compra' : 'suporte';
+        const topic = `ticket-owner:${interaction.user.id};ticket-type:${ticketType}`;
+        const existing = guild.channels.cache.find(channel => channel.parentId === parentId && channel.type === ChannelType.GuildText &&
+            (channel.topic === topic || (type === 'support' && channel.topic === `ticket-owner:${interaction.user.id}`)));
+        if (existing) {
+            if (type === 'purchase') await publicarSeletorProdutos(existing).catch(error => console.error(`[loja:${existing.id}] Não foi possível publicar o carrinho:`, error));
+            return interaction.editReply({ content: `Você já tem este canal aberto: ${existing}` });
+        }
+        const safeName = (interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || interaction.user.id).slice(0, 80);
+        const channel = await guild.channels.create({
+            name: `${ticketType}-${safeName}`.slice(0, 100), type: ChannelType.GuildText, parent: parentId, topic,
+            permissionOverwrites: [
+                { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+                { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.EmbedLinks, PermissionsBitField.Flags.AttachFiles] },
+                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+                { id: CARGO_STAFF_SUPORTE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
+            ]
+        });
+        if (type === 'purchase') {
+            await publicarSeletorProdutos(channel);
+            if (settings.automations.aiResponses) {
+                void iniciarAjudaCompraAutomatica(channel, interaction.user.id);
+            }
+        } else {
+            const ticketIntro = [
+                `Cliente: <@${interaction.user.id}>`,
+                `Assunto: **${selectedOption?.label ?? 'Atendimento geral'}**`,
+                selectedOption?.description ?? '',
+                settings.automations.aiResponses
+                    ? 'A assistente virtual vai iniciar o atendimento automaticamente. Conte com detalhes o que você precisa.'
+                    : 'A equipe responderá assim que possível.'
+            ].filter(Boolean).join('\n');
+            await channel.send({
+                embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🎫 Atendimento aberto')
+                    .setDescription(ticketIntro)
+                    .setTimestamp()],
+                components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('fechar_ticket').setLabel('Fechar ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒'))],
+                allowedMentions: { users: [interaction.user.id] }
+            });
+            if (settings.automations.aiResponses) {
+                void iniciarAtendimentoAutomatico(channel, interaction.user.id, selectedOption);
+            }
+        }
+        await logAction(guild, interaction.user.id, type === 'purchase' ? 'Ticket de compra aberto' : 'Ticket de suporte aberto', `Canal ${channel.name}`);
+        await interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
+        setTimeout(() => interaction.deleteReply().catch(() => {}), 5000).unref?.();
+    } finally {
+        ticketsEmCriacao.delete(interaction.user.id);
+    }
+}
 
 client.on('interactionCreate', async interaction => {
     try {
+        if (await tratarComandoIa(interaction)) return;
         if (await tratarInteracaoAnunciosFiveM(interaction)) return;
         if (await tratarInteracaoAdministracao(interaction)) return;
         if (await tratarInteracaoParcerias(interaction)) return;
@@ -29,27 +214,7 @@ client.on('interactionCreate', async interaction => {
         if (await tratarInteracaoCompras(interaction)) return;
         if (interaction.isChatInputCommand()) {
             if (interaction.commandName === 'ajuda') {
-                return interaction.reply({
-                    flags: MessageFlags.Ephemeral,
-                    content: [
-                        '**Comandos disponíveis**',
-                        '`/ajuda` — mostra esta lista.',
-                        '`/ping` — mostra a latência do bot.',
-                        '`/teste` — verifica se o bot está respondendo.',
-                        '`/vendas` — mostra os produtos disponíveis para compra.',
-                        '`/comprar` — abre a loja com Pix Mercado Pago e entrega automática após confirmação.',
-                        '`/pagamentos` — gerencia os métodos de pagamento da loja.',
-                        '`/painel` — abre o painel privado de status e controle do bot.',
-                        '`/parcerias` — gerencia parcerias (somente donos).',
-                        '`/cadastrar-parceria` — abre o cadastro rápido de parceria (somente donos).',
-                        '`/anuncios-fivem` — administra anúncios (somente donos).',
-                        '`/configurar` — configura canais e automações (somente donos).',
-                        '`/status` e `/logs` — estado do bot e registro administrativo.',
-                        '`/backup` — baixa uma cópia dos dados administrativos (somente donos).',
-                        '',
-                        'Os painéis do servidor também oferecem verificação, abertura de tickets e carrinho de compras.'
-                    ].join('\n')
-                });
+                return interaction.reply({ ...criarAjuda(), flags: MessageFlags.Ephemeral });
             }
             if (interaction.commandName === 'ping') {
                 return interaction.reply({
@@ -69,6 +234,12 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ flags: MessageFlags.Ephemeral, content: 'Comando não reconhecido.' });
         }
 
+        if (interaction.isStringSelectMenu() && interaction.customId === 'ticket:select:support') {
+            const selectedOption = getTicketPanelConfig().support.options.find(option => option.value === interaction.values[0]);
+            if (!selectedOption) return interaction.reply({ content: 'Essa opção foi removida. Atualize o painel e tente novamente.', flags: MessageFlags.Ephemeral });
+            return criarTicketPrivado(interaction, 'support', selectedOption);
+        }
+
         if (!interaction.isButton()) return;
 
         if (interaction.customId === 'botao_verificar') {
@@ -83,44 +254,8 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: '✅ Verificação concluída!', flags: MessageFlags.Ephemeral });
         }
 
-        if (interaction.customId === 'abrir_ticket') {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            const guild = interaction.guild;
-            if (ticketsEmCriacao.has(interaction.user.id)) return interaction.editReply({ content: 'Seu atendimento está sendo aberto. Aguarde um instante.' });
-            ticketsEmCriacao.add(interaction.user.id);
-            try {
-            await guild.channels.fetch();
-            const supportCategoryId = getSettings().channels.supportCategory;
-            const duplicateTicket = guild.channels.cache.find(channel => channel.parentId === supportCategoryId && channel.type === ChannelType.GuildText && channel.topic === `ticket-owner:${interaction.user.id}`);
-            if (duplicateTicket) {
-                await publicarSeletorProdutos(duplicateTicket).catch(error => console.error(`[loja:${duplicateTicket.id}] Não foi possível publicar o carrinho:`, error));
-                return interaction.editReply({ content: `Você já tem um atendimento aberto: ${duplicateTicket}` });
-            }
-            const cleanUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '') || interaction.user.id;
-            const tipo = 'ticket';
-            const channel = await guild.channels.create({
-                name: `${tipo}-${cleanUser}`.slice(0, 100),
-                type: ChannelType.GuildText,
-                parent: supportCategoryId,
-                topic: `ticket-owner:${interaction.user.id}`,
-                permissionOverwrites: [
-                    { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-                    { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.EmbedLinks, PermissionsBitField.Flags.AttachFiles] },
-                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
-                    { id: CARGO_STAFF_SUPORTE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
-                ]
-            });
-            await publicarSeletorProdutos(channel).catch(error => console.error(`[loja:${channel.id}] Não foi possível publicar o carrinho:`, error));
-            await logAction(guild, interaction.user.id, 'Ticket aberto', `Canal ${channel.name}`);
-            await interaction.editReply({ content: `✅ Canal criado com sucesso: ${channel}` });
-            setTimeout(() => {
-                interaction.deleteReply().catch(() => {});
-            }, 5000).unref?.();
-            return;
-            } finally {
-                ticketsEmCriacao.delete(interaction.user.id);
-            }
-        }
+        if (interaction.customId === 'abrir_ticket') return criarTicketPrivado(interaction, 'support');
+        if (interaction.customId === 'ticket:open:purchase') return criarTicketPrivado(interaction, 'purchase');
 
         if (interaction.customId === 'fechar_ticket') {
             const member = await interaction.guild.members.fetch(interaction.user.id);

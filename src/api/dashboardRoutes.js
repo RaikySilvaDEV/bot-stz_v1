@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ChannelType } from 'discord.js';
 import {
     addPaymentMethod, getPaymentConfig, removePaymentMethod, setPaymentMethodActive, updatePaymentMethod
 } from '../repositories/paymentMethodsRepository.js';
@@ -14,7 +15,7 @@ import {
     COMMERCE_AUTOMATIONS, createCommerceProduct, getCommerceConfig, getCommerceProduct, getCommerceProducts,
     removeCommerceProduct, setCommerceAutomation, setProductActive,
     setProductDeliveryLink, setProductDeliveryMessage, setProductDetails,
-    setProductImage, resetProductImage, setProductRole, setProductStock, createCoupon, removeCoupon,
+    setProductImage, resetProductImage, setProductRole, setProductRoles, setProductStock, createCoupon, removeCoupon,
     saveStorefrontReference
 } from '../repositories/commerceRepository.js';
 import { getProductPriceCents, removeProductPrice, setProductPriceCents } from '../repositories/productCatalogRepository.js';
@@ -31,6 +32,9 @@ import {
     reconcilePartnerPayout, sendPartnerPayout
 } from '../services/partnerPayouts.js';
 import { logAction } from '../services/audit.js';
+import { getTicketPanelConfig, updateTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
+import { getWallpaperImageContentType, listWallpapers, readWallpaperImage, saveWallpaper } from '../repositories/wallpaperRepository.js';
+import { configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
     dashboardLoginResponse, dashboardLogoutResponse, dashboardPasswordValid,
@@ -44,6 +48,10 @@ const PAGE_FILES = {
     '/painel/app.js': ['app.js', 'text/javascript; charset=utf-8'],
     '/painel/style.css': ['style.css', 'text/css; charset=utf-8']
 };
+const BRAND_ASSETS = new Map([
+    ['banner-socio-server-bot.png', 'image/png'],
+    ['logo-bot.png', 'image/png']
+]);
 const LUCIDE_ICONS = new Set(fs.readdirSync(path.join(PUBLIC_DIR, 'icons')).filter(name => name.endsWith('.svg')));
 
 function responder(res, status, data) {
@@ -76,6 +84,17 @@ function sendStoreImage(res, filename) {
         res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
         res.end(image);
     } catch { responder(res, 404, { erro: 'Imagem não encontrada.' }); }
+}
+
+async function readRawBody(req, maxBytes) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+        size += chunk.length;
+        if (size > maxBytes) throw Object.assign(new Error('O arquivo excede o limite de 25 MiB.'), { status: 413 });
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks, size);
 }
 
 function safeOrder(order) {
@@ -175,6 +194,25 @@ export async function handleDashboardRoute(req, res, url, readJson) {
         sendPageFile(res, filename, contentType);
         return true;
     }
+    const brandAssetMatch = pathname.match(/^\/painel\/brand-assets\/([a-z0-9-]+\.png)$/);
+    if (req.method === 'GET' && brandAssetMatch) {
+        const filename = brandAssetMatch[1];
+        const contentType = BRAND_ASSETS.get(filename);
+        if (!contentType) return responder(res, 404, { erro: 'Imagem não encontrada.' }), true;
+        sendPageFile(res, `brand-assets/${filename}`, contentType);
+        return true;
+    }
+    const wallpaperImageMatch = pathname.match(/^\/painel\/wallpaper-images\/([^/]+)$/);
+    if (req.method === 'GET' && wallpaperImageMatch) {
+        if (!dashboardRequestAuthorized(req)) return responder(res, 401, { erro: 'Entre no painel para continuar.' }), true;
+        const filename = decodeURIComponent(wallpaperImageMatch[1]);
+        const image = readWallpaperImage(filename);
+        const contentType = getWallpaperImageContentType(filename);
+        if (!image || !contentType) return responder(res, 404, { erro: 'Wallpaper não encontrado.' }), true;
+        res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'private, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+        res.end(image);
+        return true;
+    }
     const iconMatch = pathname.match(/^\/painel\/icons\/([a-z0-9-]+\.svg)$/);
     if (req.method === 'GET' && iconMatch) {
         if (!LUCIDE_ICONS.has(iconMatch[1])) return responder(res, 404, { erro: 'Ícone não encontrado.' }), true;
@@ -217,6 +255,16 @@ export async function handleDashboardRoute(req, res, url, readJson) {
     }
 
     try {
+        if (pathname === '/api/painel/wallpapers' && req.method === 'GET') {
+            return responder(res, 200, listWallpapers()), true;
+        }
+        if (pathname === '/api/painel/wallpapers' && req.method === 'POST') {
+            const originalName = decodeURIComponent(String(req.headers['x-file-name'] ?? ''));
+            if (!originalName || originalName.length > 255) return responder(res, 400, { erro: 'Informe o nome do arquivo de imagem.' }), true;
+            const image = await readRawBody(req, 25 * 1024 * 1024);
+            const wallpaper = await saveWallpaper(image, originalName);
+            return responder(res, 201, { wallpaper, wallpapers: listWallpapers() }), true;
+        }
         if (pathname === '/api/painel/status' && req.method === 'GET') {
             return responder(res, 200, await getDashboardDetails()), true;
         }
@@ -240,10 +288,84 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             return responder(res, 200, {
                 timezone: settings.timezone, announcementHours: settings.announcementHours,
                 everyoneMentions: settings.everyoneMentions, channels: settings.channels,
+                ticketPanels: getTicketPanelConfig(),
                 availableChannels: [...channels.values()].filter(channel => channel && ([0, 5].includes(channel.type) || channel.type === 4))
                     .map(channel => ({ id: channel.id, name: channel.name, type: channel.type === 4 ? 'category' : 'text' }))
                     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
             }), true;
+        }
+        if (pathname === '/api/painel/channels' && req.method === 'GET') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            if (!guild) return responder(res, 503, { erro: 'Servidor Discord indisponível.' }), true;
+            const channels = await guild.channels.fetch().catch(() => null);
+            if (!channels) return responder(res, 503, { erro: 'Não foi possível carregar os canais do servidor.' }), true;
+            const supported = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildVoice, ChannelType.GuildCategory]);
+            const result = [...channels.values()].filter(channel => channel && supported.has(channel.type))
+                .map(channel => ({ id: channel.id, name: channel.name, type: channel.type, parentId: channel.parentId ?? null,
+                    topic: channel.topic ?? '', position: channel.position }))
+                .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, 'pt-BR'));
+            return responder(res, 200, { channels: result }), true;
+        }
+        if (pathname === '/api/painel/channels' && req.method === 'POST') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            if (!guild) return responder(res, 503, { erro: 'Servidor Discord indisponível.' }), true;
+            const body = await readJson(req);
+            const name = typeof body?.name === 'string' ? body.name.trim() : '';
+            const types = { text: ChannelType.GuildText, announcement: ChannelType.GuildAnnouncement, voice: ChannelType.GuildVoice, category: ChannelType.GuildCategory };
+            const type = types[body?.type];
+            if (!name || name.length > 100 || !type) return responder(res, 400, { erro: 'Informe nome (1–100 caracteres) e tipo de canal válido.' }), true;
+            const parentId = body?.parentId || null;
+            const parent = parentId ? await guild.channels.fetch(parentId).catch(() => null) : null;
+            if (parentId && parent?.type !== ChannelType.GuildCategory) return responder(res, 400, { erro: 'A categoria selecionada não existe.' }), true;
+            const position = body?.position === undefined ? undefined : Number(body.position);
+            if (position !== undefined && (!Number.isInteger(position) || position < 0 || position > 500)) return responder(res, 400, { erro: 'A posição deve ser um número entre 0 e 500.' }), true;
+            const channel = await guild.channels.create({ name, type, ...(type !== ChannelType.GuildCategory && parentId ? { parent: parentId } : {}),
+                ...(type !== ChannelType.GuildCategory && typeof body.topic === 'string' && body.topic.trim() ? { topic: body.topic.trim().slice(0, 1024) } : {}) });
+            if (position !== undefined) await channel.setPosition(position);
+            await logAction(guild, 'painel-web', 'Canal criado', `#${channel.name} (${channel.id})`);
+            return responder(res, 201, { channel: { id: channel.id, name: channel.name, type: channel.type, parentId: channel.parentId ?? null, topic: channel.topic ?? '', position: channel.position } }), true;
+        }
+        const channelMatch = pathname.match(/^\/api\/painel\/channels\/(\d{17,20})$/);
+        if (channelMatch && req.method === 'PATCH') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const channel = await guild?.channels.fetch(channelMatch[1]).catch(() => null);
+            const supported = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildVoice, ChannelType.GuildCategory]);
+            if (!channel || !supported.has(channel.type)) return responder(res, 404, { erro: 'Canal não encontrado ou tipo não gerenciável.' }), true;
+            const body = await readJson(req);
+            const requestedPosition = body?.position === undefined ? undefined : Number(body.position);
+            if (requestedPosition !== undefined && (!Number.isInteger(requestedPosition) || requestedPosition < 0 || requestedPosition > 500)) return responder(res, 400, { erro: 'A posição deve ser um número entre 0 e 500.' }), true;
+            const changes = {};
+            if (body?.name !== undefined) {
+                if (typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 100) return responder(res, 400, { erro: 'O nome deve ter entre 1 e 100 caracteres.' }), true;
+                changes.name = body.name.trim();
+            }
+            if (body?.topic !== undefined && channel.type !== ChannelType.GuildCategory) {
+                if (typeof body.topic !== 'string' || body.topic.length > 1024) return responder(res, 400, { erro: 'O tópico pode ter até 1024 caracteres.' }), true;
+                changes.topic = body.topic.trim() || null;
+            }
+            if (body?.parentId !== undefined && channel.type !== ChannelType.GuildCategory) {
+                const parentId = body.parentId || null;
+                const parent = parentId ? await guild.channels.fetch(parentId).catch(() => null) : null;
+                if (parentId && (parent?.type !== ChannelType.GuildCategory || parent.id === channel.id)) return responder(res, 400, { erro: 'Selecione uma categoria válida.' }), true;
+                changes.parent = parentId;
+                changes.lockPermissions = false;
+            }
+            if (Object.keys(changes).length) await channel.edit(changes);
+            if (requestedPosition !== undefined) await channel.setPosition(requestedPosition);
+            await logAction(guild, 'painel-web', 'Canal atualizado', `#${channel.name} (${channel.id})`);
+            const updated = await guild.channels.fetch(channel.id);
+            return responder(res, 200, { channel: { id: updated.id, name: updated.name, type: updated.type, parentId: updated.parentId ?? null, topic: updated.topic ?? '', position: updated.position } }), true;
+        }
+        if (channelMatch && req.method === 'DELETE') {
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const channel = await guild?.channels.fetch(channelMatch[1]).catch(() => null);
+            if (!channel) return responder(res, 404, { erro: 'Canal não encontrado.' }), true;
+            const configuredFor = Object.entries(getSettings().channels).filter(([, id]) => id === channel.id).map(([key]) => key);
+            if (configuredFor.length) return responder(res, 409, { erro: `Este canal está em uso pelo bot (${configuredFor.join(', ')}). Troque o destino em Configuração antes de excluir.` }), true;
+            const label = `#${channel.name} (${channel.id})`;
+            await channel.delete('Removido pelo painel web');
+            await logAction(guild, 'painel-web', 'Canal removido', label);
+            return responder(res, 200, { ok: true }), true;
         }
         if (pathname === '/api/painel/config' && req.method === 'PUT') {
             const body = await readJson(req);
@@ -273,14 +395,33 @@ export async function handleDashboardRoute(req, res, url, readJson) {
                     if (id === null || id === '') { next[key] = null; continue; }
                     if (typeof id !== 'string') return responder(res, 400, { erro: `Canal inválido em ${key}.` }), true;
                     const channel = channels.get(id);
-                    const valid = key === 'supportCategory' ? channel?.type === 4 : [0, 5].includes(channel?.type);
+                    const valid = ['supportCategory', 'purchaseCategory'].includes(key) ? channel?.type === 4 : [0, 5].includes(channel?.type);
                     if (!valid) return responder(res, 400, { erro: `Selecione um canal compatível para ${key}.` }), true;
                     next[key] = id;
                 }
                 update.channels = next;
             }
+            if (body?.ticketPanels !== undefined) {
+                try { updateTicketPanelConfig(body.ticketPanels); }
+                catch (error) { return responder(res, 400, { erro: error.message }), true; }
+            }
             const settings = updateSettings(update);
-            return responder(res, 200, { timezone: settings.timezone, announcementHours: settings.announcementHours, everyoneMentions: settings.everyoneMentions, channels: settings.channels }), true;
+            return responder(res, 200, { timezone: settings.timezone, announcementHours: settings.announcementHours, everyoneMentions: settings.everyoneMentions, channels: settings.channels, ticketPanels: getTicketPanelConfig() }), true;
+        }
+        if (pathname === '/api/painel/tickets/publish' && req.method === 'POST') {
+            const result = await configurarPainelTickets();
+            if (!result?.support || !result?.purchase) return responder(res, 400, { erro: 'Configure os canais de suporte e compras e confira se o bot pode enviar mensagens neles.' }), true;
+            return responder(res, 200, { ok: true }), true;
+        }
+        if (pathname === '/api/painel/maintenance/announce' && req.method === 'POST') {
+            const body = await readJson(req);
+            if (body?.message !== undefined) {
+                try { updateTicketPanelConfig({ maintenance: { message: body.message } }); }
+                catch (error) { return responder(res, 400, { erro: error.message }), true; }
+            }
+            const result = await publicarAvisoManutencao();
+            if (!result.ok) return responder(res, 400, { erro: result.reason }), true;
+            return responder(res, 200, { ok: true, channelId: result.channelId }), true;
         }
         if (pathname === '/api/painel/roles' && req.method === 'GET') {
             const guild = client.guilds.cache.get(GUILD_ID);
@@ -296,7 +437,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
         }
         if (pathname === '/api/painel/announcements' && req.method === 'POST') {
             const body = await readJson(req);
-            const announcement = await criarAnuncioFiveM({ titulo: body?.titulo, texto: body?.texto, actorId: 'painel-web' });
+            const announcement = await criarAnuncioFiveM({ titulo: body?.titulo, texto: body?.texto, imageUrl: body?.imageUrl, actorId: 'painel-web' });
             return responder(res, 201, { announcement, announcements: listarAnunciosFiveM() }), true;
         }
         const announcementMatch = pathname.match(/^\/api\/painel\/announcements\/([^/]+)$/);
@@ -326,6 +467,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const settings = saveMercadoPagoSettings({
                 payoutsAccessToken: body?.accessToken,
                 payoutsTestMode: body?.testMode,
+                payoutsTestMaxCents: body?.testMaxCents,
                 payoutsPrivateKeyPath: body?.privateKeyPath
             });
             return responder(res, 200, { settings }), true;
@@ -355,7 +497,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const body = await readJson(req);
             const roleId = typeof body?.roleId === 'string' && body.roleId ? body.roleId : null;
             if (!roleId) return responder(res, 400, { erro: 'Selecione o cargo do Discord que será entregue automaticamente após o pagamento.' }), true;
-            if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Cargo inválido, gerenciado ou acima do cargo do bot. Mova o cargo para baixo do cargo do bot.' }), true;
+            if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Cargo inválido, gerenciado ou acima do cargo do bot.' }), true;
             const priceCents = Number(body?.priceCents);
             const originalPriceCents = Number(body?.originalPriceCents);
             const stock = body?.stock === null || body?.stock === '' || body?.stock === undefined ? null : Number(body.stock);
@@ -385,9 +527,9 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const priceCents = Number(body?.priceCents);
             if (!Number.isSafeInteger(priceCents) || priceCents < 1 || priceCents > 99_999_999) return responder(res, 400, { erro: 'Preço promocional inválido.' }), true;
             if (stock !== null && (!Number.isSafeInteger(stock) || stock < 0 || stock > 100000)) return responder(res, 400, { erro: 'Estoque precisa ser ilimitado ou entre 0 e 100000.' }), true;
-            const roleId = typeof body?.roleId === 'string' && body.roleId ? body.roleId : null;
-            if (!roleId) return responder(res, 400, { erro: 'Selecione o cargo do Discord que será entregue automaticamente após o pagamento.' }), true;
-            if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Cargo inválido, gerenciado ou acima do cargo do bot. Mova o cargo para baixo do cargo do bot.' }), true;
+            const roleIds = Array.isArray(body?.roleIds) ? body.roleIds : [body?.roleId].filter(Boolean);
+            if (!roleIds.length || roleIds.length > 5) return responder(res, 400, { erro: 'Selecione de 1 a 5 cargos que serão entregues ao pagar.' }), true;
+            for (const roleId of roleIds) if (!(await roleCanBeDelivered(roleId))) return responder(res, 400, { erro: 'Um dos cargos é inválido, gerenciado ou está acima do cargo do bot.' }), true;
             const imageUrl = String(body?.customImageUrl ?? '').trim();
             if (body?.imageMode !== 'builtin' && imageUrl) {
                 let parsed;
@@ -403,7 +545,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             setProductDetails(value, body);
             setProductPriceCents(value, priceCents);
             setProductStock(value, stock);
-            setProductRole(value, roleId);
+            setProductRoles(value, roleIds);
             setProductDeliveryMessage(value, body?.deliveryMessage ?? '');
             setProductDeliveryLink(value, body?.deliveryLink ?? '');
             if (body?.imageMode === 'builtin' || !imageUrl) resetProductImage(value);
