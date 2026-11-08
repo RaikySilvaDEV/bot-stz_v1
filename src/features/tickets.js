@@ -1,6 +1,6 @@
 import { ChannelType } from 'discord.js';
 import { client } from '../client.js';
-import { GUILD_ID, CANAIS_IGNORADOS_SUPORTE, MEU_ID_USUARIO, CARGO_STAFF_SUPORTE_ID } from '../config/constants.js';
+import { GUILD_ID, CANAIS_IGNORADOS_SUPORTE, MEU_ID_USUARIO, CARGO_STAFF_SUPORTE_ID, IDS_EQUIPE_TICKETS } from '../config/constants.js';
 import { addNotifiedTicketId, getNotifiedTicketIds, removeNotifiedTicketId } from '../repositories/stateRepository.js';
 import { getSettings } from '../repositories/settingsRepository.js';
 import { getCommerceConfig, getCommerceProducts } from '../repositories/commerceRepository.js';
@@ -31,6 +31,12 @@ function saudacaoAtual(language = 'pt-BR') {
 
 function respostaPedeHumano(answer) {
     return /CHAVE_HUMANO/i.test(answer) || answer.trim().length < 10;
+}
+
+async function mensagemDoClienteAindaMaisRecente(channel, messageId) {
+    const recent = await channel.messages.fetch({ limit: 1 }).catch(() => null);
+    const latest = recent?.first();
+    return latest?.id === messageId && !latest.author.bot && !IDS_EQUIPE_TICKETS.has(latest.author.id);
 }
 
 function mensagemPrecisaDaEquipe(text) {
@@ -257,7 +263,7 @@ export async function iniciarAjudaCompraAutomatica(channel, userId) {
 }
 
 async function responderPerguntaDeCompra(message) {
-    if (!message.inGuild() || message.author.bot || !message.content?.trim() || message.channel.type !== ChannelType.GuildText) return;
+    if (!message.inGuild() || message.author.bot || IDS_EQUIPE_TICKETS.has(message.author.id) || !message.content?.trim() || message.channel.type !== ChannelType.GuildText) return;
     const topic = message.channel.topic ?? '';
     if (!topic.includes('ticket-type:compra')) return;
     const ownerId = topic.match(/ticket-owner:(\d{17,20})/)?.[1];
@@ -280,6 +286,7 @@ async function responderPerguntaDeCompra(message) {
         const language = getUserLanguage(ownerId);
         const respostaPrecisionFix = responderSobrePrecisionFix(message.content, { ticketCompra: true, contextoAnterior, language });
         if (respostaPrecisionFix) {
+            if (!await mensagemDoClienteAindaMaisRecente(message.channel, message.id)) return;
             await enviarRespostaDiscord(message.channel, respostaPrecisionFix, { replyTo: message, allowedMentions: { parse: [] } });
             return;
         }
@@ -287,6 +294,7 @@ async function responderPerguntaDeCompra(message) {
         const status = await getAssistantStatus();
         if (!status.ready) {
             if (!avisoIaIndisponivelPorCanal.has(message.channel.id)) {
+                if (!await mensagemDoClienteAindaMaisRecente(message.channel, message.id)) return;
                 avisoIaIndisponivelPorCanal.add(message.channel.id);
                 const language = getUserLanguage(ownerId);
                 const fallback = language === 'en-US' ? '⚠️ Purchase assistance is unavailable right now. The cart still works, and the team can help in this ticket.' : language === 'es' ? '⚠️ La asistencia de compra no está disponible ahora. El carrito sigue funcionando y el equipo puede ayudarte en este ticket.' : '⚠️ A assistente de compras está indisponível no momento. O menu do carrinho continua funcionando e a equipe pode ajudar por este ticket.';
@@ -298,6 +306,7 @@ async function responderPerguntaDeCompra(message) {
         await avisarAguardarResposta(message.channel, ownerId);
         await message.channel.sendTyping();
         const answer = await generateAssistantResponse(obterPromptComCatalogo(PROMPT_SISTEMA_COMPRA, ownerId), conversation, { userId: ownerId });
+        if (!await mensagemDoClienteAindaMaisRecente(message.channel, message.id)) return;
         if (respostaPedeHumano(answer)) {
             await encaminharParaEquipe(message.channel, ownerId, 'dúvida ou problema de compra');
             return;
@@ -313,7 +322,9 @@ async function responderPerguntaDeCompra(message) {
             : language === 'es'
                 ? congestion ? '⏳ La asistente está atendiendo a otras personas. Espera un momento; si hace falta, vuelve a enviar tu pregunta una sola vez.' : '⚠️ No pude responder ahora. El carrito sigue disponible; contacta al equipo si necesitas ayuda con un pedido.'
                 : congestion ? '⏳ A assistente está concluindo outros atendimentos. Aguarde um pouco; se ainda precisar, envie sua pergunta novamente uma única vez.' : '⚠️ Não consegui responder agora. O menu do carrinho continua disponível; se a dúvida for sobre um pedido, chame a equipe.';
-        await message.reply({ content: response.slice(0, 1900), allowedMentions: { parse: [] } }).catch(() => {});
+        if (await mensagemDoClienteAindaMaisRecente(message.channel, message.id)) {
+            await message.reply({ content: response.slice(0, 1900), allowedMentions: { parse: [] } }).catch(() => {});
+        }
     } finally {
         avisoAguardarPorCanal.delete(message.channel.id);
         perguntasDeCompraEmAndamento.delete(message.id);
@@ -366,7 +377,7 @@ export function iniciarVarreduraTicketsOrfaos() {
                     const msgsOrdenadas = Array.from(mensagens.values()).sort((a, b) => b.createdTimestamp - a.createdTimestamp);
                     const ultimaMsg = msgsOrdenadas[0];
 
-                    if (!ultimaMsg.author.bot && settings.automations.aiResponses) {
+                    if (!ultimaMsg.author.bot && !IDS_EQUIPE_TICKETS.has(ultimaMsg.author.id) && settings.automations.aiResponses) {
                         if (ultimaMensagemTentadaPorCanal.get(canalTicket.id) === ultimaMsg.id) continue;
                         const ultimaRespostaIA = ultimoAtendimentoPorCanal.get(canalTicket.id) ?? 0;
                         if (Date.now() - ultimaRespostaIA < 30 * 1000) continue;
@@ -382,6 +393,7 @@ export function iniciarVarreduraTicketsOrfaos() {
                         const language = getUserLanguage(ultimaMsg.author.id);
                         const respostaPrecisionFix = responderSobrePrecisionFix(ultimaMsg.content, { contextoAnterior, language });
                         if (respostaPrecisionFix) {
+                            if (!await mensagemDoClienteAindaMaisRecente(canalTicket, ultimaMsg.id)) continue;
                             await enviarRespostaDiscord(canalTicket, respostaPrecisionFix, { replyTo: ultimaMsg, allowedMentions: { parse: [] } });
                             ultimoAtendimentoPorCanal.set(canalTicket.id, Date.now());
                             continue;
@@ -390,6 +402,7 @@ export function iniciarVarreduraTicketsOrfaos() {
                         const assistantStatus = await getAssistantStatus();
                         if (!assistantStatus?.ready) {
                             if (!avisoIaIndisponivelPorCanal.has(canalTicket.id)) {
+                                if (!await mensagemDoClienteAindaMaisRecente(canalTicket, ultimaMsg.id)) continue;
                                 avisoIaIndisponivelPorCanal.add(canalTicket.id);
                                 const language = getUserLanguage(ultimaMsg.author.id);
                                 const unavailable = language === 'en-US' ? '⚠️ Automatic assistance is unavailable right now. A team member has been notified.' : language === 'es' ? '⚠️ La asistencia automática no está disponible ahora. Se avisó al equipo.' : `⚠️ <@${MEU_ID_USUARIO}>: o autoatendimento local está indisponível. ${assistantStatus.detail}`;
@@ -411,6 +424,7 @@ export function iniciarVarreduraTicketsOrfaos() {
                                     content: message.content || '[mensagem com anexo]'
                                 })), { userId: ultimaMsg.author.id });
                             } catch (error) {
+                                if (!await mensagemDoClienteAindaMaisRecente(canalTicket, ultimaMsg.id)) continue;
                                 const congestion = error.status === 429 || error.status === 503;
                                 console[congestion ? 'info' : 'error'](`[tickets:${canalTicket.id}] ${congestion ? 'Assistente ocupada' : 'IA local indisponível'}:`, error.message);
                                 avisoIaIndisponivelPorCanal.add(canalTicket.id);
@@ -425,6 +439,7 @@ export function iniciarVarreduraTicketsOrfaos() {
                                 continue;
                             }
 
+                            if (!await mensagemDoClienteAindaMaisRecente(canalTicket, ultimaMsg.id)) continue;
                             if (respostaPedeHumano(respostaIA)) {
                                 await encaminharParaEquipe(canalTicket, ultimaMsg.author.id, 'dúvida ou problema de suporte');
                                 continue;

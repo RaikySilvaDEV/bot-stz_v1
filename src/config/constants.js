@@ -8,6 +8,11 @@ export const BOT_DEVELOPER_IDS = [...new Set([
     MEU_ID_USUARIO,
     ...(process.env.BOT_DEVELOPER_IDS ?? '').split(',').map(id => id.trim())
 ].filter(id => /^\d{17,20}$/.test(id)))];
+export const IDS_EQUIPE_TICKETS = new Set([
+    '766524316182511647', // Desenvolvedor
+    '1231602226645041258', // Sócio
+    ...BOT_DEVELOPER_IDS
+]);
 export const BOT_ADMIN_ROLE_IDS = [...new Set(
     (process.env.BOT_ADMIN_ROLE_IDS ?? '').split(',').map(id => id.trim()).filter(id => /^\d{17,20}$/.test(id))
 )];
