@@ -33,7 +33,7 @@ import {
 } from '../services/partnerPayouts.js';
 import { logAction } from '../services/audit.js';
 import { getTicketPanelConfig, updateTicketPanelConfig } from '../repositories/ticketPanelRepository.js';
-import { getWallpaperImageContentType, listWallpapers, readWallpaperImage, saveWallpaper } from '../repositories/wallpaperRepository.js';
+import { getWallpaperImageContentType, listWallpapers, MAX_WALLPAPER_BYTES, readWallpaperImage, saveWallpaper } from '../repositories/wallpaperRepository.js';
 import { configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
@@ -91,7 +91,7 @@ async function readRawBody(req, maxBytes) {
     let size = 0;
     for await (const chunk of req) {
         size += chunk.length;
-        if (size > maxBytes) throw Object.assign(new Error('O arquivo excede o limite de 25 MiB.'), { status: 413 });
+        if (size > maxBytes) throw Object.assign(new Error(`O arquivo excede o limite de ${Math.floor(maxBytes / 1024 / 1024)} MiB.`), { status: 413 });
         chunks.push(chunk);
     }
     return Buffer.concat(chunks, size);
@@ -261,7 +261,7 @@ export async function handleDashboardRoute(req, res, url, readJson) {
         if (pathname === '/api/painel/wallpapers' && req.method === 'POST') {
             const originalName = decodeURIComponent(String(req.headers['x-file-name'] ?? ''));
             if (!originalName || originalName.length > 255) return responder(res, 400, { erro: 'Informe o nome do arquivo de imagem.' }), true;
-            const image = await readRawBody(req, 25 * 1024 * 1024);
+            const image = await readRawBody(req, MAX_WALLPAPER_BYTES);
             const wallpaper = await saveWallpaper(image, originalName);
             return responder(res, 201, { wallpaper, wallpapers: listWallpapers() }), true;
         }

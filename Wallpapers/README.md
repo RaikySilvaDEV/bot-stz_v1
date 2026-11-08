@@ -1,5 +1,7 @@
 # Wallpapers do bot
 
-Envie imagens pela seção **Avisos** do painel web. Os arquivos são salvos nesta pasta com numeração sequencial a partir do dia atual (`1.png`, `2.jpg`, `3.gif` etc.). O bot também organiza automaticamente arquivos de imagem que já estejam nesta pasta com nomes diferentes ou em subpastas, sem sobrescrever dias já numerados.
+Você pode enviar wallpapers pela seção **Avisos** do painel. O bot aceita PNG, JPG, WebP e GIF, com limite de **45 MiB por imagem**. Arquivos maiores devem ser adicionados diretamente a esta pasta e enviados ao GitHub com Git LFS.
 
-Extensões aceitas: `.png`, `.jpg`, `.jpeg`, `.webp` e `.gif`. O bot publica um wallpaper por dia no canal configurado e só avança a sequência depois de confirmar o envio. Cada upload pelo painel pode ter até 25 MiB.
+Use a sequência `1.png` até `105.png`. O bot organiza arquivos com nomes diferentes em um número disponível, sem sobrescrever wallpapers já numerados, e só avança o dia depois de confirmar a publicação no Discord.
+
+Para clonar ou atualizar este repositório com os wallpapers completos, instale o Git LFS e execute `git lfs install`. Os arquivos desta pasta e os arquivos grandes `.mp4`, `.rar`, `.zip` e `.7z` são armazenados por Git LFS.
