@@ -5,8 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { client } from '../client.js';
 import { PATHS, GUILD_ID } from '../config/constants.js';
-import { PRODUCTS } from '../config/products.js';
-import { getCommerceProducts } from '../repositories/commerceRepository.js';
+import { getCommerceConfig, getCommerceProducts } from '../repositories/commerceRepository.js';
 import { getProductPriceCents } from '../repositories/productCatalogRepository.js';
 import { getSaudacaoDinamica } from '../services/greetings.js';
 import {
@@ -108,7 +107,7 @@ export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveL
     }
 }
 
-export function gerarPayloadsLoop() {
+export function gerarPayloadsLoop(purchaseChannelId = null) {
     const settings = getSettings();
     const saudacao = getSaudacaoDinamica(new Date(), settings.timezone);
     const hora = getScheduleDateParts(new Date(), settings.timezone).hour;
@@ -131,13 +130,31 @@ export function gerarPayloadsLoop() {
         return `• **${product.name}** — ${price}\n  🎟️ Acesso: ${access} · ${product.durationDays} dias`;
     }).join('\n');
     const productList = productLines || 'No momento, não há produtos ativos na loja.';
+    const purchaseDestination = purchaseChannelId
+        ? `🚀 **Adquira o PrecisionFix:**\n<#${purchaseChannelId}>`
+        : '🚀 **Adquira o PrecisionFix:**\nAbra o carrinho pelo painel de compras do servidor.';
     return {
         payloadComprasOnline: greetingPayload(`${saudacao}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n${productList}\n\nAbra seu carrinho no painel de compras para ver os detalhes e finalizar o pedido.\n\n@everyone`),
         payloadVendasSuporte: greetingPayload(`${saudacao}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone`),
         payloadSugestao: greetingPayload(`${saudacao}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone`),
         payloadNovidadesCargos: { content: `# ✨ NOVIDADES NA COMMUNITY FOR FIVEM! ✨\nAtualizamos nossos cargos e vantagens!\n\n@everyone`, allowedMentions },
-        payloadInfoPrecision: greetingPayload(`${saudacao}\n\n⚡ **BOT ONLINE • INFORMAÇÕES SOBRE O PRECISIONFIX**\n\nO bot está online.\n\n🔹 **Faça sua verificação:**\n<#${settings.channels.verification}>\n\n🚀 **Adquira o PrecisionFix:**\n<#${PRODUCTS[0].channelId}>\n\n> ⚠️ O acesso do PrecisionFix dura **5 dias**.\n\n@everyone`)
+        payloadInfoPrecision: greetingPayload(`${saudacao}\n\n⚡ **BOT ONLINE • INFORMAÇÕES SOBRE O PRECISIONFIX**\n\nO bot está online.\n\n🔹 **Faça sua verificação:**\n<#${settings.channels.verification}>\n\n${purchaseDestination}\n\n> ⚠️ O acesso do PrecisionFix dura **5 dias**.\n\n@everyone`)
     };
+}
+
+async function resolverCanalDeCompras(guild, settings) {
+    const commerce = getCommerceConfig();
+    const candidates = [...new Set([
+        commerce.storeChannelId,
+        settings.channels.purchasePanel,
+        settings.channels.purchaseStatus
+    ].filter(id => typeof id === 'string' && /^\d{17,20}$/.test(id)))];
+
+    for (const id of candidates) {
+        const channel = await guild.channels.fetch(id).catch(() => null);
+        if (channel?.isTextBased()) return channel.id;
+    }
+    return null;
 }
 
 export async function dispararAvisosLoopHorario() {
@@ -148,7 +165,8 @@ export async function dispararAvisosLoopHorario() {
         console.error(`[avisos] Bot não está no servidor configurado (${GUILD_ID}).`);
         return false;
     }
-    const payloads = gerarPayloadsLoop();
+    const purchaseChannelId = await resolverCanalDeCompras(guild, settings);
+    const payloads = gerarPayloadsLoop(purchaseChannelId);
     const mensagens = [
         [settings.channels.purchaseStatus, payloads.payloadComprasOnline],
         [settings.channels.supportNotices, payloads.payloadVendasSuporte],
