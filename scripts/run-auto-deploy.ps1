@@ -94,9 +94,10 @@ try {
             $bot = $null
             Invoke-Git @('pull', '--ff-only', 'origin', $branch)
             try {
+                Invoke-Git @('lfs', 'pull', 'origin', $branch)
                 Invoke-NpmCi
             } catch {
-                Write-DeployLog "Dependências falharam; voltando para $previousCommit. Motivo: $($_.Exception.Message)"
+                Write-DeployLog "Git LFS ou dependências falharam; voltando para $previousCommit. Motivo: $($_.Exception.Message)"
                 Invoke-Git @('reset', '--hard', $previousCommit)
                 Invoke-NpmCi
                 throw

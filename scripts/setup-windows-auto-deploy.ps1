@@ -57,6 +57,11 @@ if ($listener) {
 $gitCommand = Get-Command git.exe -ErrorAction Stop
 $nodeCommand = Get-Command node.exe -ErrorAction Stop
 $npmCommand = Get-Command npm.cmd -ErrorAction Stop
+$gitLfsVersion = & $gitCommand.Source lfs version 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw 'Este repositório usa Git LFS para os wallpapers grandes. Instale Git LFS no Windows e execute novamente: https://git-lfs.com/'
+}
+Invoke-Checked $gitCommand.Source @('lfs', 'install') 'git lfs install'
 
 Write-Step 'Preparando uma cópia Git limpa do projeto'
 if (Test-Path -LiteralPath $InstallPath) {
@@ -76,6 +81,7 @@ if (Test-Path -LiteralPath $InstallPath) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $InstallPath) -Force | Out-Null
     Invoke-Checked $gitCommand.Source @('clone', '--single-branch', '--branch', $Branch, $repository, $InstallPath) 'git clone'
 }
+Invoke-Checked $gitCommand.Source @('-C', $InstallPath, 'lfs', 'pull', 'origin', $Branch) 'git lfs pull'
 
 Write-Step 'Preservando configuração e dados locais'
 $targetEnv = Join-Path $InstallPath '.env'

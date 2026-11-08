@@ -5,7 +5,7 @@ import { PATHS } from '../config/constants.js';
 import { getWallpaperState } from './stateRepository.js';
 
 const EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
-const MAX_WALLPAPER_BYTES = 25 * 1024 * 1024;
+export const MAX_WALLPAPER_BYTES = 45 * 1024 * 1024;
 
 function readImageExtension(buffer, requestedExtension) {
     const ext = requestedExtension.toLowerCase();
@@ -87,7 +87,7 @@ export function listWallpapers() {
 
 export async function saveWallpaper(buffer, originalName) {
     if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw Object.assign(new Error('O arquivo está vazio.'), { status: 400 });
-    if (buffer.length > MAX_WALLPAPER_BYTES) throw Object.assign(new Error('Cada imagem pode ter no máximo 25 MiB.'), { status: 413 });
+    if (buffer.length > MAX_WALLPAPER_BYTES) throw Object.assign(new Error('Cada imagem pode ter no máximo 45 MiB.'), { status: 413 });
     const extension = readImageExtension(buffer, path.extname(path.basename(originalName || '')));
     const { currentDay, nextDay } = listWallpapers();
     if (nextDay === null) throw Object.assign(new Error('A sequência de 1 a 105 está completa. Remova arquivos antigos antes de adicionar outros.'), { status: 409 });
