@@ -240,6 +240,59 @@ dialog::backdrop { background: rgb(21 29 48 / 42%); backdrop-filter: blur(3px); 
   .notice { top: 146px; }
   .workspace footer { align-items: flex-start; flex-direction: column; }
 }
+
+/* Visão geral reorganizada: indicadores, vendas e operação em uma grade clara. */
+.overview-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(290px, .9fr); align-items: start; gap: 14px; margin-top: 14px; }
+.overview-main-column, .overview-side-column { display: grid; min-width: 0; gap: 14px; }
+.overview-metric { min-height: 132px; }
+.overview-metric .metric { margin: 16px 0 5px; font-size: clamp(22px, 2vw, 30px); }
+.overview-metric .metric-money { font-size: clamp(18px, 1.55vw, 25px); letter-spacing: -.04em; }
+.metric-foot { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.overview-metric .text-action { margin-top: 7px; }
+.chart-toolbar { display: flex; align-items: center; gap: 10px; }
+.chart-period-switch { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: #10141b; }
+.chart-period { min-height: 27px; padding: 4px 9px; border: 0; border-radius: 6px; color: var(--muted); background: transparent; font-size: 10px; font-weight: 700; }
+.chart-period.active { color: #d5e0ff; background: #283957; }
+.recent-orders-card { padding-bottom: 5px; }
+.recent-order-list { display: grid; }
+.recent-order-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 11px 2px; border-top: 1px solid var(--line); }
+.order-product-icon { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border: 1px solid #2d3b58; border-radius: 10px; color: #b3c8ff; background: #1c2940; }
+.recent-order-copy { display: grid; min-width: 0; flex: 1; gap: 4px; }
+.recent-order-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.recent-order-copy small { color: var(--muted); font-size: 9px; }
+.recent-order-value { font-size: 11px; white-space: nowrap; }
+.recent-order-row .badge { flex: 0 0 auto; }
+.compact-empty { height: 110px; }
+.service-health-list { display: grid; gap: 11px; padding: 2px 0 10px; }
+.service-health-row { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 10px; }
+.service-health-row .badge { font-size: 9px; }
+.service-health-row .status-icon { width: 8px; height: 8px; }
+.quick-actions-list { grid-template-columns: 1fr 1fr; }
+.quick-action { min-height: 43px; padding: 9px; font-size: 10px; }
+.attention-list { display: grid; gap: 6px; }
+.attention-row { display: grid; grid-template-columns: 17px minmax(0, 1fr) 14px; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: #111720; text-align: left; }
+.attention-row > span:first-child, .attention-row > span:last-child { color: #f1bd65; }
+.attention-row > span:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
+.attention-row strong { font-size: 10px; }
+.attention-row small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.attention-row:hover { border-color: #485b7b; background: #182131; }
+.attention-clear { margin: 0; padding: 5px 0; }
+@media (max-width: 1120px) {
+  .overview-layout { grid-template-columns: minmax(0, 1.3fr) minmax(260px, .8fr); }
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .overview-layout { grid-template-columns: 1fr; }
+  .overview-side-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-side-column > :last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .overview-side-column { grid-template-columns: 1fr; }
+  .overview-side-column > :last-child { grid-column: auto; }
+  .chart-toolbar { align-items: flex-end; flex-direction: column; gap: 5px; }
+  .recent-order-row { flex-wrap: wrap; }
+  .recent-order-row .badge { margin-left: 44px; }
+}
 @media (max-width: 560px) {
   .workspace { padding-right: 13px; padding-left: 13px; }
   .grid, .grid.two, .overview-grid, .form-grid.two, .form-grid.three, .config-channels, .quick-actions-list { grid-template-columns: 1fr; }

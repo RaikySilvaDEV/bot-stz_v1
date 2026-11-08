@@ -1,17 +1,16 @@
 const DEFAULTS = Object.freeze({
     host: 'http://127.0.0.1:11434',
     model: 'qwen2.5:0.5b',
-    timeoutMs: 30_000,
-    numCtx: 1024,
-    numPredict: 120,
+    timeoutMs: 90_000,
+    numCtx: 2048,
+    numPredict: 512,
     numThread: 1,
     keepAlive: '0',
     maxConcurrent: 1,
-    maxQueue: 3,
-    cooldownMs: 15_000,
+    maxQueue: 5,
     globalRequestsPerMinute: 12,
     maxPromptChars: 6000,
-    maxResponseChars: 3000
+    maxResponseChars: 12_000
 });
 
 function boundedInteger(value, fallback, min, max) {
@@ -40,18 +39,17 @@ function readConfig(env) {
         enabled: !['false', '0', 'no', 'off'].includes((env.OLLAMA_ENABLED ?? 'true').trim().toLowerCase()),
         host,
         model,
-        timeoutMs: boundedInteger(env.OLLAMA_TIMEOUT_MS, DEFAULTS.timeoutMs, 1000, 120_000),
+        timeoutMs: boundedInteger(env.OLLAMA_TIMEOUT_MS, DEFAULTS.timeoutMs, 1000, 180_000),
         numCtx: boundedInteger(env.OLLAMA_NUM_CTX, DEFAULTS.numCtx, 256, 4096),
-        numPredict: boundedInteger(env.OLLAMA_NUM_PREDICT, DEFAULTS.numPredict, 1, 512),
+        numPredict: boundedInteger(env.OLLAMA_NUM_PREDICT, DEFAULTS.numPredict, 1, 2048),
         numThread: boundedInteger(env.OLLAMA_NUM_THREAD, DEFAULTS.numThread, 1, 4),
         keepAlive: safeKeepAlive,
         // O modelo leve deste host foi dimensionado para uma inferência por vez.
         maxConcurrent: Math.min(1, boundedInteger(env.OLLAMA_MAX_CONCURRENT, DEFAULTS.maxConcurrent, 1, 8)),
         maxQueue: boundedInteger(env.OLLAMA_MAX_QUEUE, DEFAULTS.maxQueue, 0, 20),
-        cooldownMs: boundedInteger(env.OLLAMA_USER_COOLDOWN_MS, DEFAULTS.cooldownMs, 0, 300_000),
         globalRequestsPerMinute: boundedInteger(env.OLLAMA_GLOBAL_RPM, DEFAULTS.globalRequestsPerMinute, 1, 120),
         maxPromptChars: boundedInteger(env.OLLAMA_MAX_PROMPT_CHARS, DEFAULTS.maxPromptChars, 500, 20_000),
-        maxResponseChars: boundedInteger(env.OLLAMA_MAX_RESPONSE_CHARS, DEFAULTS.maxResponseChars, 100, 6000)
+        maxResponseChars: boundedInteger(env.OLLAMA_MAX_RESPONSE_CHARS, DEFAULTS.maxResponseChars, 100, 24_000)
     });
 }
 
@@ -80,7 +78,6 @@ export function createAssistantProvider({ env = process.env, fetchImpl = globalT
     const config = readConfig(env);
     const queue = [];
     const active = new Set();
-    const userRequests = new Map();
     const globalRequests = [];
     const recentPrompts = new Map();
     let stopped = false;
@@ -165,19 +162,10 @@ export function createAssistantProvider({ env = process.env, fetchImpl = globalT
         const promptKey = normalized.map(item => item.content).join('\n').toLowerCase();
         const timestamp = now();
         const userKey = userId ? String(userId) : null;
-        const userStateExpiry = Math.max(60_000, config.cooldownMs);
-        for (const [key, requestedAt] of userRequests) {
-            if (timestamp - requestedAt >= userStateExpiry) {
-                userRequests.delete(key);
-                recentPrompts.delete(key);
-            }
+        for (const [key, previous] of recentPrompts) {
+            if (timestamp - previous.at >= 60_000) recentPrompts.delete(key);
         }
         if (userKey) {
-            const last = userRequests.get(userKey) ?? 0;
-            if (config.cooldownMs > 0 && timestamp - last < config.cooldownMs) {
-                const seconds = Math.ceil((config.cooldownMs - (timestamp - last)) / 1000);
-                throw httpError(`Aguarde ${seconds} segundo(s) antes de enviar outra pergunta.`, 429);
-            }
             const previousPrompt = recentPrompts.get(userKey);
             if (previousPrompt?.value === promptKey && timestamp - previousPrompt.at < 60_000) {
                 throw httpError('Essa mesma pergunta acabou de ser enviada. Aguarde ou reformule a mensagem.', 429);
@@ -191,10 +179,7 @@ export function createAssistantProvider({ env = process.env, fetchImpl = globalT
             throw httpError('A fila da IA está cheia. Aguarde a resposta atual e tente novamente.', 503);
         }
         globalRequests.push(timestamp);
-        if (userKey) {
-            userRequests.set(userKey, timestamp);
-            recentPrompts.set(userKey, { value: promptKey, at: timestamp });
-        }
+        if (userKey) recentPrompts.set(userKey, { value: promptKey, at: timestamp });
         return normalized;
     }
 
@@ -210,39 +195,56 @@ export function createAssistantProvider({ env = process.env, fetchImpl = globalT
             else task.signal.addEventListener('abort', externalAbort, { once: true });
         }
         try {
-            const response = await fetchImpl(`${config.host}/api/chat`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: config.model,
-                    stream: false,
-                    keep_alive: config.keepAlive,
-                    messages: [
-                        { role: 'system', content: sanitizeText(task.systemPrompt, 2000) },
-                        ...task.messages
-                    ],
-                    options: {
-                        temperature: 0.35,
-                        num_ctx: config.numCtx,
-                        num_predict: config.numPredict,
-                        num_thread: config.numThread
-                    }
-                }),
-                signal: controller.signal
-            });
-            if (!response.ok) {
-                const status = response.status === 404 ? 503 : 502;
-                throw httpError(response.status === 404
-                    ? `O modelo ${config.model} não foi encontrado no Ollama. Instale-o com: ollama pull ${config.model}`
-                    : `Ollama respondeu com HTTP ${response.status}.`, status);
+            const messages = [
+                { role: 'system', content: sanitizeText(task.systemPrompt, 2000) },
+                ...task.messages
+            ];
+            const answerParts = [];
+            let answerLength = 0;
+            let truncated = false;
+            for (let continuation = 0; continuation < 6; continuation += 1) {
+                const response = await fetchImpl(`${config.host}/api/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: config.model,
+                        stream: false,
+                        keep_alive: config.keepAlive,
+                        messages,
+                        options: {
+                            temperature: 0.35,
+                            num_ctx: config.numCtx,
+                            num_predict: config.numPredict,
+                            num_thread: config.numThread
+                        }
+                    }),
+                    signal: controller.signal
+                });
+                if (!response.ok) {
+                    const status = response.status === 404 ? 503 : 502;
+                    throw httpError(response.status === 404
+                        ? `O modelo ${config.model} não foi encontrado no Ollama. Instale-o com: ollama pull ${config.model}`
+                        : `Ollama respondeu com HTTP ${response.status}.`, status);
+                }
+                let data;
+                try { data = await response.json(); }
+                catch (error) { throw httpError('O Ollama retornou uma resposta inválida.', 502, error); }
+                const part = typeof data.message?.content === 'string' ? data.message.content : '';
+                if (!part.trim()) break;
+                answerParts.push(part);
+                answerLength += part.length;
+                truncated = data.done_reason === 'length' || data.done === false;
+                if (!truncated || answerLength >= config.maxResponseChars) break;
+                messages.push(
+                    { role: 'assistant', content: part },
+                    { role: 'user', content: 'Continue exatamente do ponto em que parou, sem repetir o texto anterior. Termine a resposta de forma completa e concisa.' }
+                );
             }
-            let data;
-            try { data = await response.json(); }
-            catch (error) { throw httpError('O Ollama retornou uma resposta inválida.', 502, error); }
-            const answer = typeof data.message?.content === 'string' ? data.message.content.trim() : '';
+            const answer = answerParts.join('').trim();
             if (!answer) throw httpError('O modelo local retornou uma resposta vazia. Tente reformular a pergunta.', 502);
             lastResponseMs = Math.max(0, now() - startedAt);
-            return answer.slice(0, config.maxResponseChars);
+            if (truncated) return `${answer}\n\n_(Resposta longa; envie “continue” se precisar da continuação.)_`;
+            return answer;
         } catch (error) {
             if (controller.signal.aborted) {
                 if (stopped) throw abortError('Bot encerrando: geração de IA cancelada.');

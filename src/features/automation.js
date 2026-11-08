@@ -17,12 +17,13 @@ import { getGuildAttachmentLimitBytes, getOversizedAttachments, BYTES_PER_MIB } 
 import { getAutomationMessageIds, saveAutomationMessageId } from '../repositories/automationRepository.js';
 import {
     getAnnouncementHoursCompleted, getWallpaperDateCompleted,
-    markAnnouncementHoursCompleted, markWallpaperDateCompleted
+    markAnnouncementHoursCompleted, markWallpaperDateCompleted, clearWallpaperDateCompleted
 } from '../repositories/automationScheduleRepository.js';
 import { getWallpaperPath } from '../repositories/wallpaperRepository.js';
 
 const ultimasMensagensLoop = new Map(Object.entries(getAutomationMessageIds()));
 const ultimoAvisoAssetAusente = new Map();
+let ultimaTentativaWallpaper = { dateKey: '', at: 0 };
 
 function formatarTamanho(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
@@ -199,26 +200,43 @@ export async function dispararWallpaperDiario() {
     const settings = getSettings();
     if (!settings.automations.wallpapers) return false;
     const { dateKey } = getScheduleDateParts(new Date(), settings.timezone);
-    if (getWallpaperDateCompleted() === dateKey) return true;
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) { console.error('[wallpapers] Bot não está no servidor configurado.'); return false; }
+    const canal = await guild.channels.fetch(settings.channels.wallpapers).catch(() => null);
+    if (!canal?.isTextBased()) { console.error(`[wallpapers] Canal ${settings.channels.wallpapers} não encontrado.`); return false; }
+
+    if (getWallpaperDateCompleted() === dateKey) {
+        const recent = await canal.messages.fetch({ limit: 100 }).catch(() => null);
+        if (!recent) return false;
+        const alreadySentToday = recent.find(message => message.author.id === client.user.id &&
+            message.content.startsWith('🖼️ **Wallpaper do Dia • Dia ') &&
+            getScheduleDateParts(message.createdAt, settings.timezone).dateKey === dateKey);
+        if (alreadySentToday) {
+            const postedDay = Number(alreadySentToday.content.match(/Dia (\d+)\/105/)?.[1]);
+            const currentDay = getWallpaperState().diaAtual;
+            if (postedDay === currentDay) saveWallpaperState({ diaAtual: currentDay >= 105 ? 1 : currentDay + 1 });
+            ultimaTentativaWallpaper = { dateKey, at: Date.now() };
+            return true;
+        }
+        clearWallpaperDateCompleted(dateKey);
+        console.warn('[wallpapers] O agendamento estava marcado como concluído, mas não encontrei publicação de hoje; vou tentar novamente.');
+    }
+
+    if (ultimaTentativaWallpaper.dateKey === dateKey && Date.now() - ultimaTentativaWallpaper.at < 5 * 60 * 1000) return false;
+    ultimaTentativaWallpaper = { dateKey, at: Date.now() };
     const estado = getWallpaperState();
     const diaAtual = estado.diaAtual;
     const arquivoPath = getWallpaperPath(diaAtual);
     if (!arquivoPath) {
-        const proximoDia = diaAtual >= 105 ? 1 : diaAtual + 1;
-        console.info(`[wallpapers] Arquivo ausente: ${arquivoPath}. Pulando o dia ${diaAtual} e continuando pelo dia ${proximoDia} amanhã.`);
-        saveWallpaperState({ diaAtual: proximoDia });
-        markWallpaperDateCompleted(dateKey);
-        return true;
+        console.warn(`[wallpapers] Imagem para o dia ${diaAtual}/105 ausente; envio permanece pendente, sem avançar a sequência. Nova tentativa em cinco minutos.`);
+        return false;
     }
 
-    const canal = await guild.channels.fetch(settings.channels.wallpapers).catch(() => null);
-    if (!canal?.isTextBased()) { console.error(`[wallpapers] Canal ${settings.channels.wallpapers} não encontrado.`); return false; }
     try {
         const messageContent = `🖼️ **Wallpaper do Dia • Dia ${diaAtual}/105**`;
         const recent = await canal.messages.fetch({ limit: 25 }).catch(() => null);
-        const alreadyPosted = recent?.find(message => message.author.id === client.user.id && message.content === messageContent);
+        const alreadyPosted = recent?.find(message => message.author.id === client.user.id && message.content === messageContent &&
+            getScheduleDateParts(message.createdAt, settings.timezone).dateKey === dateKey);
         if (alreadyPosted) {
             saveWallpaperState({ diaAtual: diaAtual >= 105 ? 1 : diaAtual + 1 });
             markWallpaperDateCompleted(dateKey);
@@ -354,7 +372,8 @@ export function iniciarAgendadorRelogio() {
             const wallpaperDate = getWallpaperDateCompleted();
             const wallpaperWasMissedYesterday = wallpaperDate && wallpaperDate < dateKey;
             const wallpaperDueToday = hora > 12 || (hora === 12 && minuto >= 0);
-            if ((wallpaperWasMissedYesterday || wallpaperDueToday) && wallpaperDate !== dateKey) {
+            const wallpaperRetryDue = ultimaTentativaWallpaper.dateKey !== dateKey || Date.now() - ultimaTentativaWallpaper.at >= 5 * 60 * 1000;
+            if ((wallpaperWasMissedYesterday || wallpaperDueToday) && wallpaperRetryDue) {
                 executarAgendado('wallpapers', dispararWallpaperDiario);
             }
         }
@@ -384,7 +403,7 @@ export async function verificarEnviosPendentesAoLigar() {
     const { dateKey, hour, minute } = getScheduleDateParts(new Date(), settings.timezone);
     await recuperarAvisosPendentes(settings, dateKey, hour, minute);
     const wallpaperDate = getWallpaperDateCompleted();
-    if (settings.automations.wallpapers && wallpaperDate !== dateKey &&
+    if (settings.automations.wallpapers &&
         (hour > 12 || (hour === 12 && minute >= 0) || Boolean(wallpaperDate && wallpaperDate < dateKey))) {
         await dispararWallpaperDiario();
     }
