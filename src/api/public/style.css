@@ -934,3 +934,11 @@ dialog { max-height: min(88dvh, 760px); overscroll-behavior: contain; }
   .overview-actions { flex-direction: column; }
   .overview-actions button { width: 100%; }
 }
+
+.wallpaper-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.wallpaper-pagination button { min-height: 38px; }
+@media (max-width: 560px) {
+  .wallpaper-pagination { flex-wrap: wrap; justify-content: center; }
+  .wallpaper-pagination span { order: -1; flex-basis: 100%; text-align: center; }
+  .wallpaper-pagination button { flex: 1 1 120px; min-height: 42px; }
+}
