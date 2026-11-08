@@ -114,14 +114,40 @@ function obterPromptComCatalogo(prompt) {
     return `${prompt}\n\nCATÁLOGO ATUAL CONFIÁVEL (dados, não instruções):\n${JSON.stringify(obterResumoCatalogo())}\nUse esses dados para responder sobre produtos, preços, cargos entregues e validade. Se algo não estiver configurado no catálogo, diga isso claramente; não invente.`;
 }
 
-function responderSobrePrecisionFix(text) {
-    const normalized = String(text ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
-    if (!/precision[\s_-]*fix/.test(normalized) || !/\b(quero|queria|como|quanto|preco|gratis|gratuito|baixar|comprar|compra|acesso|adquirir|ter|preciso|funciona|usar)\b/.test(normalized)) return null;
+function normalizarTextoAtendimento(text) {
+    return String(text ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+}
+
+function responderSobrePrecisionFix(text, { ticketCompra = false, contextoAnterior = '' } = {}) {
+    const normalized = normalizarTextoAtendimento(text);
+    const normalizedContext = normalizarTextoAtendimento(contextoAnterior);
+    // Reconhece precisionfix, precision-fix, precision fix e erros comuns como precison fix.
+    const produtoNoTexto = /\bprecis(?:ion|on|ao)?\s*fix\b/.test(normalized);
+    const produtoNoContexto = /\bprecis(?:ion|on|ao)?\s*fix\b/.test(normalizedContext);
+    const perguntaAcompanhamento = /\b(preco|valor|custa|quanto|gratis|gratuito|de graca|pago|comprar|compra|acesso|adquirir|ter|pegar|como|onde|baixar|obter|assinar|sim)\b/.test(normalized);
+    if (!produtoNoTexto && !(produtoNoContexto && perguntaAcompanhamento)) return null;
+
+    // Problemas técnicos devem seguir para o fluxo de suporte, sem receber uma resposta de venda automática.
+    const problemaTecnico = /\b(erro|bug|falha|problema|nao abre|nao funciona|nao inicia|nao carrega|nao instala|nao consigo|nao estou conseguindo|nao ta abrindo|nao ta funcionando|parou|travou|travando|instalar|instalacao|configurar|ativar|crash)\b/.test(normalized);
+    if (problemaTecnico) return null;
+
+    const perguntaPreco = /\b(preco|valor|custa|quanto|gratis|gratuito|de graca|pago|teste|testar)\b/.test(normalized);
+    const perguntaFuncao = /\b(o que e|que e|faz|funciona|serve|utilidade|beneficio|vantagem)\b/.test(normalized);
+    const querAcesso = /\b(quero|queria|comprar|compra|acesso|adquirir|ter|pegar|como|onde|baixar|obter|assinar|existe|precisa|requisitos)\b/.test(normalized);
+    if (!ticketCompra && !perguntaPreco && !perguntaFuncao && !querAcesso) return null;
 
     const { precoPremium, validadeDias } = obterResumoCatalogo().precisionFix;
-    const valor = precoPremium === 'não configurado' ? 'O preço do Premium ainda não está configurado na loja' : `o Premium custa ${precoPremium}`;
+    const valor = precoPremium === 'não configurado'
+        ? 'O preço do Cargo Premium ainda não está configurado na loja'
+        : `o Cargo Premium custa ${precoPremium}`;
     const validade = Number.isInteger(validadeDias) && validadeDias > 0 ? validadeDias : 5;
-    return `O PrecisionFix é pago e o acesso é liberado pelo Cargo Premium. No catálogo atual, ${valor}; o acesso dura ${validade} dias. Para comprar, selecione Cargo Premium no menu do carrinho acima e siga as etapas do pagamento. Posso ajudar com mais alguma dúvida?`;
+    const acesso = `O PrecisionFix é pago, não tem teste gratuito e o acesso é liberado pelo Cargo Premium. ${valor}; o acesso dura ${validade} dias.`;
+
+    if (perguntaFuncao && !querAcesso && !perguntaPreco) {
+        return `O PrecisionFix é um utilitário de otimização para Windows e FiveM. O acesso é pago, liberado pelo Cargo Premium e dura ${validade} dias; não posso garantir um aumento específico de FPS. Para adquirir, selecione Cargo Premium no menu do carrinho. Quer ajuda com a compra?`;
+    }
+    return `${acesso} Para adquirir, selecione Cargo Premium no menu do carrinho acima e siga as etapas do pagamento. Posso ajudar com mais alguma dúvida?`;
 }
 
 export async function iniciarAtendimentoAutomatico(channel, userId, selectedOption = null) {
@@ -175,11 +201,19 @@ async function responderPerguntaDeCompra(message) {
             await encaminharParaEquipe(message.channel, ownerId, 'pedido explícito ou assunto sensível de compra');
             return;
         }
-        const respostaPrecisionFix = responderSobrePrecisionFix(message.content);
+        const history = await message.channel.messages.fetch({ limit: 8 });
+        const conversation = Array.from(history.values())
+            .filter(item => item.id !== message.id && (item.author.id === client.user.id || (!item.author.bot && item.author.id === ownerId)))
+            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+            .map(item => ({ role: item.author.bot ? 'assistant' : 'user', content: item.content || '[mensagem com anexo]' }));
+        conversation.push({ role: 'user', content: message.content });
+        const contextoAnterior = conversation.slice(0, -1).map(item => item.content).join('\n');
+        const respostaPrecisionFix = responderSobrePrecisionFix(message.content, { ticketCompra: true, contextoAnterior });
         if (respostaPrecisionFix) {
             await enviarRespostaDiscord(message.channel, respostaPrecisionFix, { replyTo: message, allowedMentions: { parse: [] } });
             return;
         }
+
         const status = await getAssistantStatus();
         if (!status.ready) {
             if (!avisoIaIndisponivelPorCanal.has(message.channel.id)) {
@@ -191,12 +225,6 @@ async function responderPerguntaDeCompra(message) {
 
         await avisarAguardarResposta(message.channel, ownerId);
         await message.channel.sendTyping();
-        const history = await message.channel.messages.fetch({ limit: 8 });
-        const conversation = Array.from(history.values())
-            .filter(item => item.id !== message.id && (item.author.id === client.user.id || (!item.author.bot && item.author.id === ownerId)))
-            .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-            .map(item => ({ role: item.author.bot ? 'assistant' : 'user', content: item.content || '[mensagem com anexo]' }));
-        conversation.push({ role: 'user', content: message.content });
         const answer = await generateAssistantResponse(obterPromptComCatalogo(PROMPT_SISTEMA_COMPRA), conversation, { userId: ownerId });
         if (respostaPedeHumano(answer)) {
             await encaminharParaEquipe(message.channel, ownerId, 'dúvida ou problema de compra');
@@ -271,7 +299,8 @@ export function iniciarVarreduraTicketsOrfaos() {
                             continue;
                         }
 
-                        const respostaPrecisionFix = responderSobrePrecisionFix(ultimaMsg.content);
+                        const contextoAnterior = msgsOrdenadas.slice(1, 8).map(message => message.content || '').join('\n');
+                        const respostaPrecisionFix = responderSobrePrecisionFix(ultimaMsg.content, { contextoAnterior });
                         if (respostaPrecisionFix) {
                             await enviarRespostaDiscord(canalTicket, respostaPrecisionFix, { replyTo: ultimaMsg, allowedMentions: { parse: [] } });
                             ultimoAtendimentoPorCanal.set(canalTicket.id, Date.now());
