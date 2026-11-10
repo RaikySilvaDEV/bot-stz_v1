@@ -41,6 +41,7 @@ import { createScheduledAnnouncement, getScheduledAnnouncements, removeScheduled
 import { configurarCanalVerificacao, configurarPainelTickets, publicarAvisoManutencao } from '../features/community.js';
 import { publicarAvisoCanalRestrito } from '../features/announcementNotice.js';
 import { BOT_ANNOUNCEMENT_LABELS, getBotAnnouncements, updateBotAnnouncements } from '../repositories/botAnnouncementsRepository.js';
+import { gerarPayloadsLoop } from '../features/automation.js';
 import { registrarComandos } from '../commands/deploy.js';
 import {
     dashboardLoginResponse, dashboardLogoutResponse, dashboardPasswordValid,
@@ -287,6 +288,30 @@ export async function handleDashboardRoute(req, res, url, readJson) {
             const guild = client.guilds.cache.get(GUILD_ID);
             await logAction(guild, 'painel-web', 'Avisos do bot atualizados', `${Object.keys(body.announcements ?? {}).length} texto(s)`);
             return responder(res, 200, { announcements, labels: BOT_ANNOUNCEMENT_LABELS, publishResults }), true;
+        }
+        const botAnnouncementTestMatch = pathname.match(/^\/api\/painel\/bot-announcements\/([a-zA-Z]+)\/test$/);
+        if (botAnnouncementTestMatch && req.method === 'POST') {
+            const destinations = {
+                sales: 'purchaseStatus', partnerships: 'partnerships', support: 'supportNotices',
+                suggestions: 'suggestions', roleNews: 'roleNews', precisionInfo: 'precisionInfo'
+            };
+            const key = botAnnouncementTestMatch[1];
+            const channelKey = destinations[key];
+            if (!channelKey) return responder(res, 404, { erro: 'Este aviso não possui envio de teste.' }), true;
+            const guild = client.guilds.cache.get(GUILD_ID);
+            const channelId = getSettings().channels[channelKey];
+            const channel = channelId ? await guild?.channels.fetch(channelId).catch(() => null) : null;
+            if (!channel?.isTextBased()) return responder(res, 400, { erro: 'Configure um canal de texto válido para este aviso.' }), true;
+            const payloads = gerarPayloadsLoop();
+            const payloadByKey = {
+                sales: payloads.payloadComprasOnline, partnerships: payloads.payloadParceria,
+                support: payloads.payloadVendasSuporte, suggestions: payloads.payloadSugestao,
+                roleNews: payloads.payloadNovidadesCargos, precisionInfo: payloads.payloadInfoPrecision
+            };
+            const payload = payloadByKey[key];
+            const message = await channel.send({ ...payload, content: `🧪 **TESTE DO AVISO · ${BOT_ANNOUNCEMENT_LABELS[key]}**\n${payload.content ?? ''}`, allowedMentions: { parse: [] } });
+            await logAction(guild, 'painel-web', 'Teste de aviso fixo enviado', `${BOT_ANNOUNCEMENT_LABELS[key]}; canal #${channel.name}; mensagem ${message.id}`);
+            return responder(res, 200, { ok: true, channel: { id: channel.id, name: channel.name } }), true;
         }
         if (pathname === '/api/painel/scheduled-announcements' && req.method === 'GET') {
             return responder(res, 200, { announcements: getScheduledAnnouncements() }), true;

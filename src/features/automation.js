@@ -99,6 +99,10 @@ export async function removerAnuncioParceriaAntigo() {
 }
 
 export async function enviarOuSubstituirMensagem(guild, canalId, payload, chaveLoop) {
+    if (typeof canalId !== 'string' || !/^\d{17,20}$/.test(canalId)) {
+        console.warn(`[avisos] O destino da mensagem "${chaveLoop}" não está configurado.`);
+        return false;
+    }
     const canal = await guild.channels.fetch(canalId).catch(() => null);
     if (!canal?.isTextBased()) {
         console.warn(`[avisos] Canal ${canalId} não encontrado ou não é textual.`);
@@ -146,9 +150,14 @@ export function gerarPayloadsLoop(purchaseChannelId = null) {
     const purchaseDestination = purchaseChannelId
         ? `🚀 **Adquira o PrecisionFix:**\n<#${purchaseChannelId}>`
         : '🚀 **Adquira o PrecisionFix:**\nAbra o carrinho pelo painel de compras do servidor.';
-    const replacements = { saudacao, produtos: productList, canal_compra: purchaseDestination, canal_verificacao: `<#${settings.channels.verification}>` };
+    const replacements = {
+        saudacao, produtos: productList, canal_compra: purchaseDestination,
+        canal_verificacao: `<#${settings.channels.verification}>`,
+        canal_parcerias: settings.channels.partnerships ? `<#${settings.channels.partnerships}>` : 'o canal de parcerias do servidor'
+    };
     return {
         payloadComprasOnline: greetingPayload(aplicarModeloAviso(templates.sales, replacements)),
+        payloadParceria: greetingPayload(aplicarModeloAviso(templates.partnerships, replacements)),
         payloadVendasSuporte: greetingPayload(aplicarModeloAviso(templates.support, replacements)),
         payloadSugestao: greetingPayload(aplicarModeloAviso(templates.suggestions, replacements)),
         payloadNovidadesCargos: { content: aplicarModeloAviso(templates.roleNews, replacements), allowedMentions },
@@ -182,13 +191,25 @@ export async function dispararAvisosLoopHorario() {
     const purchaseChannelId = await resolverCanalDeCompras(guild, settings);
     const payloads = gerarPayloadsLoop(purchaseChannelId);
     const mensagens = [
-        [settings.channels.purchaseStatus, payloads.payloadComprasOnline],
-        [settings.channels.supportNotices, payloads.payloadVendasSuporte],
-        [settings.channels.suggestions, payloads.payloadSugestao],
-        [settings.channels.roleNews, payloads.payloadNovidadesCargos],
-        [settings.channels.precisionInfo, payloads.payloadInfoPrecision]
+        ['sales', settings.channels.purchaseStatus, payloads.payloadComprasOnline],
+        ['partnerships', settings.channels.partnerships, payloads.payloadParceria],
+        ['support', settings.channels.supportNotices, payloads.payloadVendasSuporte],
+        ['suggestions', settings.channels.suggestions, payloads.payloadSugestao],
+        ['roleNews', settings.channels.roleNews, payloads.payloadNovidadesCargos],
+        ['precisionInfo', settings.channels.precisionInfo, payloads.payloadInfoPrecision]
     ];
-    const results = await Promise.all(mensagens.map(([id, payload]) => enviarOuSubstituirMensagem(guild, id, payload, id)));
+    const destinationCounts = new Map();
+    for (const [, channelId] of mensagens) {
+        if (channelId) destinationCounts.set(channelId, (destinationCounts.get(channelId) ?? 0) + 1);
+    }
+    const results = [];
+    for (const [key, channelId, payload] of mensagens) {
+        if (channelId && destinationCounts.get(channelId) === 1 && !ultimasMensagensLoop.has(`announcement:${key}`)) {
+            const legacyMessageId = ultimasMensagensLoop.get(channelId);
+            if (legacyMessageId) ultimasMensagensLoop.set(`announcement:${key}`, legacyMessageId);
+        }
+        results.push(await enviarOuSubstituirMensagem(guild, channelId, payload, `announcement:${key}`));
+    }
     return results.every(Boolean);
 }
 

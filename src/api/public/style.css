@@ -1228,6 +1228,12 @@ dialog::backdrop { background: rgb(5 3 8 / 78%); backdrop-filter: blur(7px); }
 .announcements-group > .wallpaper-manager { margin: 0; border: 0; box-shadow: none; }
 .announcements-group > .bot-announcements-section { display: grid; gap: 8px; }
 .announcements-group .bot-announcement-group { margin: 0; }
+.bot-announcement-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.bot-announcement-heading > label { margin: 0; }
+.announcement-template-status { display: grid; justify-items: end; gap: 4px; text-align: right; }
+.announcement-template-status small { color: var(--muted); font-size: 10px; }
+.bot-announcement-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.bot-announcements-help { margin: 2px 2px 8px; }
 .announcements-group .announcement-schedule + .announcements-group { margin-top: 10px; }
 .workflow-group-content > .grid { margin: 0; }
 .workflow-group-content > .section-head { margin: 0 0 10px; }

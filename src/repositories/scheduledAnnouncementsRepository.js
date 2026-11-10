@@ -21,7 +21,7 @@ export function createScheduledAnnouncement(input) {
     const state = readState();
     const now = new Date().toISOString();
     const item = { id: randomUUID(), title: input.title, content: input.content, channelId: input.channelId,
-        times: input.times, enabled: input.enabled ?? true, createdAt: now, updatedAt: now };
+        times: input.times, enabled: input.enabled ?? true, imageUrl: input.imageUrl || null, createdAt: now, updatedAt: now };
     state.announcements.push(item);
     writeState(state);
     return item;
@@ -31,7 +31,12 @@ export function updateScheduledAnnouncement(id, input) {
     const state = readState();
     const index = state.announcements.findIndex(item => item.id === id);
     if (index < 0) return null;
-    state.announcements[index] = { ...state.announcements[index], ...input, updatedAt: new Date().toISOString() };
+    state.announcements[index] = {
+        ...state.announcements[index],
+        ...input,
+        imageUrl: input.imageUrl === undefined ? state.announcements[index].imageUrl ?? null : input.imageUrl || null,
+        updatedAt: new Date().toISOString()
+    };
     writeState(state);
     return state.announcements[index];
 }

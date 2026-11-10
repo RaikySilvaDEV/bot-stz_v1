@@ -3,6 +3,7 @@ import { readJsonData, writeJsonData } from '../data/jsonStore.js';
 const FILE = 'bot-announcements.json';
 export const BOT_ANNOUNCEMENT_DEFAULTS = {
     sales: `${'{saudacao}'}\n\n🛒 **COMPRAS ONLINE DISPONÍVEIS:**\n${'{produtos}'}\n\nAbra seu carrinho no painel de compras para ver os detalhes e finalizar o pedido.\n\n@everyone`,
+    partnerships: `${'{saudacao}'}\n\n🤝 **PARCERIAS • COMMUNITY FOR GOATS**\nQuer divulgar uma comunidade ou propor uma parceria? Confira as informações e fale com a nossa equipe em ${'{canal_parcerias}'}.\n\n@everyone`,
     support: `${'{saudacao}'}\n\n💬 **ATENDIMENTO E SUPORTE • COMMUNITY FOR FIVEM**\n\n⏰ **Horário de suporte humano:** das **09:00** às **21:00**.\n\n@everyone`,
     suggestions: `${'{saudacao}'}\n\n💡 **CANAL DE SUGESTÕES & IDEIAS**\nDeixe aqui suas ideias!\n\n@everyone`,
     roleNews: `# ✨ NOVIDADES NA COMMUNITY FOR FIVEM! ✨\nAtualizamos nossos cargos e vantagens!\n\n@everyone`,
@@ -20,7 +21,7 @@ export const BOT_ANNOUNCEMENT_DEFAULTS = {
 };
 
 export const BOT_ANNOUNCEMENT_LABELS = {
-    sales: 'Compras online', support: 'Atendimento e suporte', suggestions: 'Sugestões', roleNews: 'Novidades de cargos', precisionInfo: 'Informações do PrecisionFix',
+    sales: 'Compras online', partnerships: 'Parcerias', support: 'Atendimento e suporte', suggestions: 'Sugestões', roleNews: 'Novidades de cargos', precisionInfo: 'Informações do PrecisionFix',
     welcomeContent: 'Boas-vindas · mensagem', welcomeTitle: 'Boas-vindas · título', welcomeDescription: 'Boas-vindas · descrição',
     verificationTitle: 'Verificação · título', verificationDescription: 'Verificação · descrição',
     maintenanceTitle: 'Manutenção · título', maintenanceMessage: 'Manutenção · mensagem', restrictedChannel: 'Aviso do canal restrito',
@@ -41,7 +42,7 @@ export function updateBotAnnouncements(input = {}) {
     for (const [key, value] of Object.entries(input)) {
         if (!(key in BOT_ANNOUNCEMENT_DEFAULTS)) throw new Error(`Aviso desconhecido: ${key}.`);
         if (typeof value !== 'string' || !value.trim()) throw new Error(`O texto de “${BOT_ANNOUNCEMENT_LABELS[key]}” não pode ficar vazio.`);
-        const max = ['sales', 'support', 'suggestions', 'roleNews', 'precisionInfo', 'restrictedChannel'].includes(key)
+        const max = ['sales', 'partnerships', 'support', 'suggestions', 'roleNews', 'precisionInfo', 'restrictedChannel'].includes(key)
             ? 1900 : key.endsWith('Title') ? 100 : 1000;
         if (value.length > max) throw new Error(`“${BOT_ANNOUNCEMENT_LABELS[key]}” excede o limite de ${max} caracteres.`);
         next[key] = value.trim();
